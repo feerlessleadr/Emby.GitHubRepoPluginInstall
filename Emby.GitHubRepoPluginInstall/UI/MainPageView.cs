@@ -596,7 +596,7 @@ internal class MainPageView : PluginPageView
         // Only add self-update if it's the very first run (no repos at all)
         if (PluginUiOptions.Repos.Count == 0)
         {
-            var selfUrl = "https://github.com/bakes82/Emby.GitHubRepoPluginInstall";
+            var selfUrl = "https://github.com/feerlessleadr/Emby.GitHubRepoPluginInstall";
             PluginUiOptions.Repos.Add(new ReposToProcess
             {
                 Url = selfUrl,
