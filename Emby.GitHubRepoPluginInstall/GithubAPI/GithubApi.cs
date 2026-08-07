@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -211,70 +212,111 @@ public class GitHubApiClient : IDisposable, IGitHubApiClient
 
     public async Task<string> DownloadReleaseAsync(GitHubRelease release, string destinationPath, IProgress<double> progress = null, CancellationToken cancellationToken = default)
     {
+        // Prefer a direct .dll asset; fall back to a non-source .zip that contains the plugin DLL
         var dllAsset = release.Assets?.FirstOrDefault(x => x.IsDll);
-        if (dllAsset == null)
+        var zipAsset = dllAsset == null
+            ? release.Assets?.FirstOrDefault(x => x.IsZip)
+            : null;
+
+        if (dllAsset == null && zipAsset == null)
         {
-            _logger.Error($"No DLL asset found for release {release.Url}");
-            throw new InvalidOperationException("No DLL asset found for this release.");
+            _logger.Error($"No DLL or suitable ZIP asset found for release {release.Url}");
+            throw new InvalidOperationException("No DLL or suitable ZIP asset found for this release.");
         }
+
+        var asset = dllAsset ?? zipAsset;
+        var isZip = dllAsset == null;
 
         // For private repos, use the API URL instead of browser download URL
-        var downloadUrl = !string.IsNullOrEmpty(_client.DefaultRequestHeaders.Authorization?.Parameter) 
-            ? dllAsset.Url  // Use API URL for authenticated requests
-            : dllAsset.BrowserDownloadUrl; // Use browser URL for public repos
-            
+        var downloadUrl = !string.IsNullOrEmpty(_client.DefaultRequestHeaders.Authorization?.Parameter)
+            ? asset.Url  // Use API URL for authenticated requests
+            : asset.BrowserDownloadUrl; // Use browser URL for public repos
+
         if (string.IsNullOrEmpty(downloadUrl))
         {
-            _logger.Error($"No download URL available for release {release.Url} that has a DLL asset.");
-            throw new InvalidOperationException("No download URL available for this release that has a DLL asset.");
+            _logger.Error($"No download URL available for release {release.Url} (asset: {asset.Name}).");
+            throw new InvalidOperationException("No download URL available for this release asset.");
         }
-        
-        _logger.Debug($"Using download URL: {downloadUrl}");
 
-        var fileName = downloadUrl == dllAsset.Url ? dllAsset.Name : Path.GetFileName(downloadUrl);
-        var fullPath = Path.Combine(destinationPath, fileName);
-        var tempPath = Path.Combine(destinationPath, $"{fileName}.temp");
+        _logger.Debug($"Using download URL for {(isZip ? "ZIP" : "DLL")}: {downloadUrl}");
+
+        var assetFileName = downloadUrl == asset.Url ? asset.Name : Path.GetFileName(downloadUrl);
+        var tempDownloadPath = Path.Combine(destinationPath, $"{assetFileName}.temp");
 
         try
         {
             // For API URLs, we need to accept octet-stream
             var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
-            if (downloadUrl == dllAsset.Url)
+            if (downloadUrl == asset.Url)
             {
                 request.Headers.Accept.Clear();
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
             }
-            
+
             var response = await ExecuteWithRetryAsync(() => _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
-            // First download to a temporary file
-            using (var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            // Download to temporary file
+            using (var fs = new FileStream(tempDownloadPath, FileMode.Create, FileAccess.Write, FileShare.None))
             {
                 await response.Content.CopyToAsync(fs).ConfigureAwait(false);
             }
 
-            // If download was successful, replace the existing file
-            if (File.Exists(fullPath)) File.Delete(fullPath);
-            File.Move(tempPath, fullPath);
+            if (!isZip)
+            {
+                // Direct DLL: move into place
+                var fullPath = Path.Combine(destinationPath, assetFileName);
+                if (File.Exists(fullPath)) File.Delete(fullPath);
+                File.Move(tempDownloadPath, fullPath);
+                return assetFileName;
+            }
+
+            // ZIP handling: extract the first .dll found and install it, then clean up
+            string extractedDllName = null;
+            string extractDir = Path.Combine(Path.GetTempPath(), "EmbyPluginZip_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(extractDir);
+                System.IO.Compression.ZipFile.ExtractToDirectory(tempDownloadPath, extractDir);
+
+                // Prefer a DLL at the root of the zip; otherwise take the first one found anywhere
+                var dllFiles = Directory.GetFiles(extractDir, "*.dll", SearchOption.AllDirectories);
+                if (dllFiles.Length == 0)
+                {
+                    throw new InvalidOperationException($"ZIP asset '{asset.Name}' does not contain any .dll files.");
+                }
+
+                // Prefer root-level DLL if present
+                var rootDll = dllFiles.FirstOrDefault(f => Path.GetDirectoryName(f) == extractDir)
+                              ?? dllFiles[0];
+
+                extractedDllName = Path.GetFileName(rootDll);
+                var targetDllPath = Path.Combine(destinationPath, extractedDllName);
+
+                if (File.Exists(targetDllPath)) File.Delete(targetDllPath);
+                File.Copy(rootDll, targetDllPath, overwrite: true);
+
+                _logger.Info($"Extracted '{extractedDllName}' from ZIP '{asset.Name}' and installed to plugins folder.");
+            }
+            finally
+            {
+                // Always clean up the downloaded zip and extract directory
+                try { if (File.Exists(tempDownloadPath)) File.Delete(tempDownloadPath); } catch { /* ignore */ }
+                try { if (Directory.Exists(extractDir)) Directory.Delete(extractDir, recursive: true); } catch { /* ignore */ }
+            }
+
+            return extractedDllName;
         }
         catch (Exception ex)
         {
-            // Clean up temp file if it exists
-            if (File.Exists(tempPath))
-                try
-                {
-                    File.Delete(tempPath);
-                }
-                catch
-                {
-                    // Ignore cleanup errors
-                }
+            // Clean up temp download if it still exists
+            if (File.Exists(tempDownloadPath))
+            {
+                try { File.Delete(tempDownloadPath); } catch { /* Ignore cleanup errors */ }
+            }
 
-            throw new Exception($"Error downloading release: {ex.Message}", ex);
+            throw new Exception($"Error downloading/processing release: {ex.Message}", ex);
         }
-
-        return fileName;
     }
 
     public async Task<bool> ValidateRepositoryAsync(string owner, string repository, CancellationToken cancellationToken = default)

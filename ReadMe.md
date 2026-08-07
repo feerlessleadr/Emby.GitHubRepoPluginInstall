@@ -1,5 +1,5 @@
 # GitHub Repo Plugin Installer
-This plugin allows you to install and manage Emby plugins from GitHub repositories. It automatically pulls the latest releases and installs them as long as there is a .DLL file in the assets. The plugin also supports automatic updates, plugin registries for easy discovery, and bulk operations.
+This plugin allows you to install and manage Emby plugins from GitHub repositories. It automatically pulls the latest releases and installs them when the release contains a .DLL asset **or** a .ZIP asset that contains a .DLL (source-code zips are ignored). The plugin also supports automatic updates, plugin registries for easy discovery, and bulk operations.
 
 ## Features
 - 🔄 **Automatic Updates**: Set plugins to auto-update daily via scheduled task
@@ -150,7 +150,7 @@ Share the raw URL with others. They can add it by:
 ### Common Issues
 - **401 Unauthorized**: Check your GitHub token has the correct scopes
 - **404 Not Found**: Verify repository exists and token has access (for private repos)
-- **No DLL Assets**: Plugin releases must contain .DLL files to be installable
+- **No DLL/ZIP Assets**: Plugin releases must contain a .DLL file or a .ZIP that contains a .DLL (source-code archives are ignored)
 - **Registry Not Loading**: Verify the registry URL returns valid JSON
 
 ### Support

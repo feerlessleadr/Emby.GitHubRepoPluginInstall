@@ -39,7 +39,7 @@ public class GitHubRepPluginInstall : BasePlugin, IHasThumbImage, IHasUIPages, I
     }
 
     public override        Guid   Id          => new Guid("78185FEE-2187-4703-A8D0-4E625761D6E7");
-    public override        string Description => "Install plugins from GitHub repositories.";
+    public override        string Description => "Install plugins from GitHub repositories (supports .dll and .zip assets).";
     public sealed override string Name        => PluginName;
 
     /// <summary>

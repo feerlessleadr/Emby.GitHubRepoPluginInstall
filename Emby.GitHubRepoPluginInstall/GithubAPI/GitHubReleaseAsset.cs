@@ -45,4 +45,10 @@ public class GitHubReleaseAsset
     public string BrowserDownloadUrl { get; set; }
 
     public bool IsDll => Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// True for .zip assets that are not GitHub's auto-generated source code archives.
+    /// </summary>
+    public bool IsZip => Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+                         && !Name.Contains("source", StringComparison.OrdinalIgnoreCase);
 }

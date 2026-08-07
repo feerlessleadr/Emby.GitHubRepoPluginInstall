@@ -256,11 +256,12 @@ internal class MainPageView : PluginPageView
                         var release = await gitHubClient.GetLatestReleaseAsync(repo, true);
                         if (release != null && !release.TagName.Equals(repo.LastVersionDownloaded, StringComparison.OrdinalIgnoreCase))
                         {
-                            // Check if release has DLL assets before trying to download
-                            if (release.Assets?.Any(x => x.IsDll) == true)
+                            // Check if release has DLL or suitable ZIP assets before trying to download
+                            if (release.Assets?.Any(x => x.IsDll || x.IsZip) == true)
                             {
-                                var dllAsset = release.Assets.FirstOrDefault(x => x.IsDll);
-                                _logger.Debug($"Attempting to download {repo.Repository} v{release.TagName} - DLL asset: {dllAsset?.Name}, URL: {dllAsset?.BrowserDownloadUrl}");
+                                var asset = release.Assets.FirstOrDefault(x => x.IsDll) 
+                                            ?? release.Assets.FirstOrDefault(x => x.IsZip);
+                                _logger.Debug($"Attempting to download {repo.Repository} v{release.TagName} - asset: {asset?.Name}, URL: {asset?.BrowserDownloadUrl}");
                                 
                                 try
                                 {
@@ -277,7 +278,7 @@ internal class MainPageView : PluginPageView
                             }
                             else
                             {
-                                _logger.Warn($"No DLL assets found for {repo.Repository} release {release.TagName}");
+                                _logger.Warn($"No DLL or suitable ZIP assets found for {repo.Repository} release {release.TagName}");
                             }
                         }
                         else if (release != null)
