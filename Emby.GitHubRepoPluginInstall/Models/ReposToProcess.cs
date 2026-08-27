@@ -16,6 +16,12 @@ public class ReposToProcess
     public bool   GetPreRelease { get; set; }
     public bool   AutoUpdate    { get; set; } = true;
 
+    /// <summary>
+    /// If set, only GitHub release assets whose filename contains this text are used.
+    /// Example: "Emby" matches Moonfin.Emby-2.1.0.0.zip and skips Moonfin.Server-*.zip.
+    /// </summary>
+    public string AssetNameFilter { get; set; } = "";
+
     [ReadOnly(true)]
     public DateTime? LastDateTimeChecked { get; set; }
 
@@ -49,4 +55,13 @@ public class ReposToProcess
 
     public string Owner      => RepositoryInfo.Owner;
     public string Repository => RepositoryInfo.Repository;
+
+    public bool AssetMatchesFilter(string assetName)
+    {
+        if (string.IsNullOrWhiteSpace(AssetNameFilter))
+            return true;
+        if (string.IsNullOrEmpty(assetName))
+            return false;
+        return assetName.IndexOf(AssetNameFilter.Trim(), StringComparison.OrdinalIgnoreCase) >= 0;
+    }
 }

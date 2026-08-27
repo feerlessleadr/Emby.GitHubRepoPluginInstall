@@ -210,18 +210,28 @@ public class GitHubApiClient : IDisposable, IGitHubApiClient
         }
     }
 
-    public async Task<string> DownloadReleaseAsync(GitHubRelease release, string destinationPath, IProgress<double> progress = null, CancellationToken cancellationToken = default)
+    public async Task<string> DownloadReleaseAsync(GitHubRelease release, string destinationPath, IProgress<double> progress = null, CancellationToken cancellationToken = default, ReposToProcess repo = null)
     {
+        bool Matches(GitHubReleaseAsset a)
+        {
+            if (a == null || string.IsNullOrEmpty(a.Name))
+                return false;
+            return repo == null || repo.AssetMatchesFilter(a.Name);
+        }
+
         // Prefer a direct .dll asset; fall back to a non-source .zip that contains the plugin DLL
-        var dllAsset = release.Assets?.FirstOrDefault(x => x.IsDll);
+        var dllAsset = release.Assets?.FirstOrDefault(x => x.IsDll && Matches(x));
         var zipAsset = dllAsset == null
-            ? release.Assets?.FirstOrDefault(x => x.IsZip)
+            ? release.Assets?.FirstOrDefault(x => x.IsZip && Matches(x))
             : null;
 
         if (dllAsset == null && zipAsset == null)
         {
-            _logger.Error($"No DLL or suitable ZIP asset found for release {release.Url}");
-            throw new InvalidOperationException("No DLL or suitable ZIP asset found for this release.");
+            var filterHint = repo != null && !string.IsNullOrWhiteSpace(repo.AssetNameFilter)
+                ? $" matching filter '{repo.AssetNameFilter}'"
+                : "";
+            _logger.Error($"No DLL or suitable ZIP asset{filterHint} found for release {release.Url}");
+            throw new InvalidOperationException($"No DLL or suitable ZIP asset{filterHint} found for this release.");
         }
 
         var asset = dllAsset ?? zipAsset;
@@ -271,7 +281,7 @@ public class GitHubApiClient : IDisposable, IGitHubApiClient
                 return assetFileName;
             }
 
-            // ZIP handling: extract the first .dll found and install it, then clean up
+            // ZIP handling: extract all contents (Moonfin needs extra DLLs + web folder)
             string extractedDllName = null;
             string extractDir = Path.Combine(Path.GetTempPath(), "EmbyPluginZip_" + Guid.NewGuid().ToString("N"));
             try
@@ -279,30 +289,33 @@ public class GitHubApiClient : IDisposable, IGitHubApiClient
                 Directory.CreateDirectory(extractDir);
                 System.IO.Compression.ZipFile.ExtractToDirectory(tempDownloadPath, extractDir);
 
-                // Prefer a DLL at the root of the zip; otherwise take the first one found anywhere
                 var dllFiles = Directory.GetFiles(extractDir, "*.dll", SearchOption.AllDirectories);
                 if (dllFiles.Length == 0)
                 {
                     throw new InvalidOperationException($"ZIP asset '{asset.Name}' does not contain any .dll files.");
                 }
 
-                // Prefer root-level DLL if present
-                var rootDll = dllFiles.FirstOrDefault(f => Path.GetDirectoryName(f) == extractDir)
-                              ?? dllFiles[0];
+                var topEntries = Directory.GetFileSystemEntries(extractDir);
+                var copyRoot = extractDir;
+                if (topEntries.Length == 1 && Directory.Exists(topEntries[0]))
+                {
+                    copyRoot = topEntries[0];
+                }
 
-                extractedDllName = Path.GetFileName(rootDll);
-                var targetDllPath = Path.Combine(destinationPath, extractedDllName);
+                CopyDirectory(copyRoot, destinationPath);
 
-                if (File.Exists(targetDllPath)) File.Delete(targetDllPath);
-                File.Copy(rootDll, targetDllPath, overwrite: true);
+                var destDlls = Directory.GetFiles(destinationPath, "*.dll", SearchOption.TopDirectoryOnly);
+                extractedDllName = destDlls
+                    .Select(Path.GetFileName)
+                    .FirstOrDefault(n => n != null && n.IndexOf("Moonfin", StringComparison.OrdinalIgnoreCase) >= 0)
+                    ?? Path.GetFileName(dllFiles[0]);
 
-                _logger.Info($"Extracted '{extractedDllName}' from ZIP '{asset.Name}' and installed to plugins folder.");
+                _logger.Info($"Extracted ZIP '{asset.Name}' into plugins folder (tracked dll: {extractedDllName}).");
             }
             finally
             {
-                // Always clean up the downloaded zip and extract directory
                 try { if (File.Exists(tempDownloadPath)) File.Delete(tempDownloadPath); } catch { /* ignore */ }
-                try { if (Directory.Exists(extractDir)) Directory.Delete(extractDir, recursive: true); } catch { /* ignore */ }
+                try { if (Directory.Exists(extractDir)) Directory.Delete(extractDir, true); } catch { /* ignore */ }
             }
 
             return extractedDllName;
@@ -316,6 +329,20 @@ public class GitHubApiClient : IDisposable, IGitHubApiClient
             }
 
             throw new Exception($"Error downloading/processing release: {ex.Message}", ex);
+        }
+    }
+
+    private static void CopyDirectory(string sourceDir, string destDir)
+    {
+        Directory.CreateDirectory(destDir);
+        foreach (var file in Directory.GetFiles(sourceDir, "*", SearchOption.TopDirectoryOnly))
+        {
+            var dest = Path.Combine(destDir, Path.GetFileName(file));
+            File.Copy(file, dest, overwrite: true);
+        }
+        foreach (var dir in Directory.GetDirectories(sourceDir, "*", SearchOption.TopDirectoryOnly))
+        {
+            CopyDirectory(dir, Path.Combine(destDir, Path.GetFileName(dir)));
         }
     }
 

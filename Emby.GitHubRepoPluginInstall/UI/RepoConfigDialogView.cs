@@ -18,6 +18,7 @@ internal class RepoConfigDialogView : PluginDialogView
             uiVars.Url                     = savedRepoConfig.Url;
             uiVars.AllowPreReleaseVersions = savedRepoConfig.GetPreRelease;
             uiVars.AutoUpdate              = savedRepoConfig.AutoUpdate;
+            uiVars.AssetNameFilter         = savedRepoConfig.AssetNameFilter ?? "";
         }
 
         if (availablePlugins != null)

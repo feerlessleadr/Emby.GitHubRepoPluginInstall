@@ -88,7 +88,7 @@ public class UpdatePlugins : IScheduledTask, IConfigurableScheduledTask
 
                 if (!release.TagName.Equals(repo.LastVersionDownloaded, StringComparison.OrdinalIgnoreCase))
                 {
-                    var fileName = await gitHubClient.DownloadReleaseAsync(release, applicationPaths.PluginsPath, null, cancellationToken).ConfigureAwait(false);
+                    var fileName = await gitHubClient.DownloadReleaseAsync(release, applicationPaths.PluginsPath, null, cancellationToken, repo).ConfigureAwait(false);
                     downloads++;
                     repo.LastVersionDownloaded = release.TagName;
                     repo.FileName              = fileName;

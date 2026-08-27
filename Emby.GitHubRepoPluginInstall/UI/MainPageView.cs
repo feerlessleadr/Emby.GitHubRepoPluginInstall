@@ -91,7 +91,7 @@ internal class MainPageView : PluginPageView
             using var gitHubClient = new GitHubApiClient(PluginUiOptions.GitHubToken, _jsonSerializer, _logger);
             var releases = await gitHubClient.GetLatestReleasesAsync(item);
             var applicationPaths = _appHost.Resolve<IApplicationPaths>();
-            var fileName = await gitHubClient.DownloadReleaseAsync(releases.First(), applicationPaths.PluginsPath);
+            var fileName = await gitHubClient.DownloadReleaseAsync(releases.First(), applicationPaths.PluginsPath, null, default, item);
             item.LastVersionDownloaded = releases.First().TagName;
             item.LastDateTimeChecked = DateTime.UtcNow;
             item.FileName = fileName;
@@ -257,15 +257,15 @@ internal class MainPageView : PluginPageView
                         if (release != null && !release.TagName.Equals(repo.LastVersionDownloaded, StringComparison.OrdinalIgnoreCase))
                         {
                             // Check if release has DLL or suitable ZIP assets before trying to download
-                            if (release.Assets?.Any(x => x.IsDll || x.IsZip) == true)
+                            if (release.Assets?.Any(x => (x.IsDll || x.IsZip) && repo.AssetMatchesFilter(x.Name)) == true)
                             {
-                                var asset = release.Assets.FirstOrDefault(x => x.IsDll) 
-                                            ?? release.Assets.FirstOrDefault(x => x.IsZip);
+                                var asset = release.Assets.FirstOrDefault(x => x.IsDll && repo.AssetMatchesFilter(x.Name))
+                                            ?? release.Assets.FirstOrDefault(x => x.IsZip && repo.AssetMatchesFilter(x.Name));
                                 _logger.Debug($"Attempting to download {repo.Repository} v{release.TagName} - asset: {asset?.Name}, URL: {asset?.BrowserDownloadUrl}");
-                                
+
                                 try
                                 {
-                                    var fileName = await gitHubClient.DownloadReleaseAsync(release, applicationPaths.PluginsPath);
+                                    var fileName = await gitHubClient.DownloadReleaseAsync(release, applicationPaths.PluginsPath, null, default, repo);
                                     repo.LastVersionDownloaded = release.TagName;
                                     repo.LastDateTimeChecked = DateTime.UtcNow;
                                     repo.FileName = fileName;
@@ -421,9 +421,10 @@ internal class MainPageView : PluginPageView
                             throw new
                                 InvalidOperationException($"Repository URL '{dialog.RepoConfigUi.Url}' already exists in the list.");
 
-                        item.Url           = dialog.RepoConfigUi.Url;
-                        item.GetPreRelease = dialog.RepoConfigUi.AllowPreReleaseVersions;
-                        item.AutoUpdate    = dialog.RepoConfigUi.AutoUpdate;
+                        item.Url             = dialog.RepoConfigUi.Url;
+                        item.GetPreRelease   = dialog.RepoConfigUi.AllowPreReleaseVersions;
+                        item.AutoUpdate      = dialog.RepoConfigUi.AutoUpdate;
+                        item.AssetNameFilter = dialog.RepoConfigUi.AssetNameFilter ?? "";
                     }
                 }
                 else
@@ -434,9 +435,10 @@ internal class MainPageView : PluginPageView
 
                     var newEntry = new ReposToProcess
                                    {
-                                       Url           = dialog.RepoConfigUi.Url,
-                                       GetPreRelease = dialog.RepoConfigUi.AllowPreReleaseVersions,
-                                       AutoUpdate    = dialog.RepoConfigUi.AutoUpdate
+                                       Url             = dialog.RepoConfigUi.Url,
+                                       GetPreRelease   = dialog.RepoConfigUi.AllowPreReleaseVersions,
+                                       AutoUpdate      = dialog.RepoConfigUi.AutoUpdate,
+                                       AssetNameFilter = dialog.RepoConfigUi.AssetNameFilter ?? ""
                                    };
 
                     if (PluginUiOptions.Repos == null)
@@ -623,7 +625,7 @@ internal class MainPageView : PluginPageView
                     var release = await gitHubClient.GetLatestReleaseAsync(repo);
                     if (release != null && !release.TagName.Equals(repo.LastVersionDownloaded, StringComparison.OrdinalIgnoreCase))
                     {
-                        var fileName = await gitHubClient.DownloadReleaseAsync(release, applicationPaths.PluginsPath);
+                        var fileName = await gitHubClient.DownloadReleaseAsync(release, applicationPaths.PluginsPath, null, default, repo);
                         repo.LastVersionDownloaded = release.TagName;
                         repo.LastDateTimeChecked = DateTime.UtcNow;
                         repo.FileName = fileName;

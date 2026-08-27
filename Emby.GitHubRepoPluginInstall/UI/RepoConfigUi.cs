@@ -65,6 +65,10 @@ public class RepoConfigUi : EditableOptionsBase
     [Required]
     public string Url { get; set; }
 
+    [DisplayName("Asset name filter (optional)")]
+    [Description("Only use release files whose name contains this text. Example: Emby (picks Moonfin.Emby-*.zip, skips Moonfin.Server-*.zip / Jellyfin)")]
+    public string AssetNameFilter { get; set; } = "";
+
     [DisplayName("Allow PreRelease Versions")]
     public bool AllowPreReleaseVersions { get; set; }
 

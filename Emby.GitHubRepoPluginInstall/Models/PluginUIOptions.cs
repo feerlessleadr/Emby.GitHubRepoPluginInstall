@@ -168,6 +168,15 @@ public class PluginUIOptions : EditableOptionsBase
                 urlCol.visible      = true;
             }
 
+            var filterCol = options.columns.FirstOrDefault(e => e.dataField == nameof(ReposToProcess.AssetNameFilter));
+            if (filterCol != null)
+            {
+                filterCol.caption      = "Asset Filter";
+                filterCol.width        = 120;
+                filterCol.visibleIndex = 45;
+                filterCol.visible      = true;
+            }
+
             return new DxDataGrid(options);
         }
     }
