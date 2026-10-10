@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Emby.GitHubRepoPluginInstall.Models;
 using Emby.GitHubRepoPluginInstall.UIBaseClasses.Views;
@@ -19,6 +19,7 @@ internal class RepoConfigDialogView : PluginDialogView
             uiVars.AllowPreReleaseVersions = savedRepoConfig.GetPreRelease;
             uiVars.AutoUpdate              = savedRepoConfig.AutoUpdate;
             uiVars.AssetNameFilter         = savedRepoConfig.AssetNameFilter ?? "";
+            uiVars.AvailableAssets         = new List<string>(savedRepoConfig.GetLatestAssetNames());
         }
 
         if (availablePlugins != null)
@@ -42,9 +43,9 @@ internal class RepoConfigDialogView : PluginDialogView
 
     public override bool IsCommandAllowed(string commandKey)
     {
-        if (commandKey == "PluginSelected")
+        if (commandKey == "PluginSelected" || commandKey == "AssetSelected")
             return true;
-            
+
         return base.IsCommandAllowed(commandKey);
     }
 
@@ -61,10 +62,21 @@ internal class RepoConfigDialogView : PluginDialogView
             }
             return Task.FromResult((IPluginUIView)this);
         }
-        
+
+        if (commandId == "AssetSelected")
+        {
+            // Fill the filter with the part of the file name that doesn't change between versions
+            if (!string.IsNullOrEmpty(RepoConfigUi.SelectedAsset))
+            {
+                RepoConfigUi.AssetNameFilter = RepoConfigUi.SelectedAsset;
+                RepoConfigUi.SelectedAsset   = "";
+            }
+            return Task.FromResult((IPluginUIView)this);
+        }
+
         return base.RunCommand(itemId, commandId, data);
     }
-    
+
     public override Task OnOkCommand(string providerId, string commandId, string data)
     {
         return Task.CompletedTask;

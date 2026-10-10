@@ -56,6 +56,13 @@ stages:
         arguments: '--configuration $(BuildConfiguration) --no-restore -p:DefineConstants="$(DefineConstants)" -p:AssemblyVersion=$(Build.BuildNumber) -p:FileVersion=$(Build.BuildNumber) -p:InformationalVersion=$(Build.BuildNumber) -p:Version=$(Build.BuildNumber) -p:Authors="Bradley Baker" -p:Product="Emby GitHub Repo Plugin Install" -p:PackageVersion=$(Build.BuildNumber)'
         
     - task: DotNetCoreCLI@2
+      displayName: 'Run tests'
+      inputs:
+        command: 'test'
+        projects: 'Emby.GitHubRepoPluginInstall.Tests/Emby.GitHubRepoPluginInstall.Tests.csproj'
+        arguments: '--configuration $(BuildConfiguration) --no-build'
+
+    - task: DotNetCoreCLI@2
       displayName: 'Publish'
       inputs:
         command: 'publish'
@@ -63,7 +70,7 @@ stages:
         projects: '$(BuildParameters.RestoreBuildProjects)'
         arguments: '--configuration $(BuildConfiguration) --output $(Build.ArtifactStagingDirectory) --no-build'
         zipAfterPublish: false
-        
+
     - task: CopyFiles@2
       displayName: 'Copy Test DLL'
       inputs:

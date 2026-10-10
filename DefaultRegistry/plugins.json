@@ -5,7 +5,7 @@
     {
       "name": "GitHub Plugin Installer",
       "description": "Install and update Emby plugins directly from GitHub repositories",
-      "url": "https://github.com/bakes82/Emby.GitHubRepoPluginInstall"
+      "url": "https://github.com/feerlessleadr/Emby.GitHubRepoPluginInstall"
     },
     {
       "name": "MDBList Collections",

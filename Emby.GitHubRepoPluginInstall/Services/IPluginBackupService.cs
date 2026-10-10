@@ -7,18 +7,24 @@ namespace Emby.GitHubRepoPluginInstall.Services;
 
 public interface IPluginBackupService
 {
-    Task<string> CreateBackupAsync(string pluginPath, string version, CancellationToken cancellationToken = default);
-    Task<bool> RestoreBackupAsync(string pluginName, string version, CancellationToken cancellationToken = default);
-    Task<List<PluginBackup>> GetBackupsAsync(string pluginName, CancellationToken cancellationToken = default);
-    Task<bool> DeleteBackupAsync(string pluginName, string version, CancellationToken cancellationToken = default);
-    Task CleanupOldBackupsAsync(string pluginName, int maxBackups = 5, CancellationToken cancellationToken = default);
+    /// <summary>Copies the plugin file to the backup folder. Returns the backup path, or null if the file doesn't exist.</summary>
+    Task<string> CreateBackupAsync(string pluginFilePath, string version, CancellationToken cancellationToken = default);
+
+    /// <summary>Restores a backup over the plugin file. With no version, the newest backup is used. Returns the restored backup, or null.</summary>
+    Task<PluginBackup> RestoreBackupAsync(string pluginFileName, string version = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Backups for one plugin file, newest first.</summary>
+    Task<List<PluginBackup>> GetBackupsAsync(string pluginFileName, CancellationToken cancellationToken = default);
+
+    /// <summary>Keeps the newest <paramref name="maxBackups"/> backups and deletes the rest.</summary>
+    Task CleanupOldBackupsAsync(string pluginFileName, int maxBackups = 3, CancellationToken cancellationToken = default);
 }
 
 public class PluginBackup
 {
-    public string PluginName { get; set; }
-    public string Version { get; set; }
-    public string BackupPath { get; set; }
-    public DateTime CreatedDate { get; set; }
-    public long FileSize { get; set; }
+    public string   OriginalFileName { get; set; }
+    public string   Version          { get; set; }
+    public string   BackupPath       { get; set; }
+    public DateTime CreatedUtc       { get; set; }
+    public long     FileSize         { get; set; }
 }

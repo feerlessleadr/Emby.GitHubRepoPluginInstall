@@ -1,22 +1,40 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.ComponentModel;
-using System.Linq;
 using Emby.Web.GenericEdit;
 using Emby.Web.GenericEdit.Elements;
-using Emby.Web.GenericEdit.Elements.DxGrid;
 using Emby.Web.GenericEdit.Elements.List;
 using MediaBrowser.Model.Attributes;
 
 namespace Emby.GitHubRepoPluginInstall.Models;
 
+/// <summary>
+/// The plugin page. Properties are drawn top to bottom in the order they are declared here.
+/// Everything you can do to a plugin or a registry is on its own card, so there are no tables to select from.
+/// </summary>
 public class PluginUIOptions : EditableOptionsBase
 {
     [DontSave]
-    public override string EditorTitle => "Download Plugsin From GitHub";
+    public override string EditorTitle => "GitHub Repo Plugin Install";
 
     [DontSave]
     public override string EditorDescription =>
-        "This plugin allows you to download and install plugins from GitHub repositories.";
+        "Keeps your Emby plugins up to date from their GitHub releases.";
+
+    // ---- Status: what needs attention, what the last run did -------------------------------------------------
+
+    /// <summary>Set to a value while a restart is pending. Drives the visibility of the banner below.</summary>
+    [Browsable(false)]
+    [DontSave]
+    public string RestartFlag { get; set; }
+
+    [DisplayName("Restart needed")]
+    [DontSave]
+    [VisibleCondition(nameof(RestartFlag), SimpleCondition.IsNotNullOrEmpty)]
+    public GenericItemList RestartBanner { get; set; } = new GenericItemList();
+
+    [DisplayName("Last run")]
+    [DontSave]
+    public GenericItemList RunSummary { get; set; } = new GenericItemList();
 
     [DontSave]
     public CaptionItem Logs { get; set; } = new CaptionItem("")
@@ -24,31 +42,99 @@ public class PluginUIOptions : EditableOptionsBase
                                                 IsVisible = false
                                             };
 
+    // ---- Plugins ---------------------------------------------------------------------------------------------
+
+    [DontSave]
+    public SpacerItem SpacerStatus { get; set; } = new SpacerItem();
+
+    [DontSave]
+    public CaptionItem CaptionLatestReleases { get; set; } = new CaptionItem("Plugins");
+
+    [DisplayName("Status of each plugin")]
+    [DontSave]
+    public GenericItemList Releases { get; set; } = new GenericItemList();
+
+    [DontSave]
+    public ButtonItem Add =>
+        new ButtonItem
+        {
+            Icon    = IconNames.add,
+            Caption = "Add Plugin",
+            Data1   = "Add"
+        };
+
+    [DontSave]
+    public ButtonItem UpdateAll =>
+        new ButtonItem
+        {
+            Icon    = IconNames.system_update_alt,
+            Caption = "Update Everything Now",
+            Data1   = "UpdateAll",
+            ConfirmationPrompt = "Install the newest release of every plugin in the list, including ones with auto-update turned off?"
+        };
+
     [DontSave]
     public CaptionItem RepoLogs { get; set; } = new CaptionItem("")
                                                {
                                                    IsVisible = false
                                                };
 
+    [Browsable(false)]
+    public List<ReposToProcess> Repos { get; set; } = new List<ReposToProcess>();
+
+    // ---- History ---------------------------------------------------------------------------------------------
+
+    [DontSave]
+    public SpacerItem SpacerHistory { get; set; } = new SpacerItem();
+
+    [DontSave]
+    public CaptionItem CaptionHistory { get; set; } = new CaptionItem("Run history");
+
+    [DisplayName("Recent runs")]
+    [DontSave]
+    public GenericItemList RunHistory { get; set; } = new GenericItemList();
+
+    // ---- Settings --------------------------------------------------------------------------------------------
+
     [DontSave]
     public SpacerItem Spacer1 { get; set; } = new SpacerItem();
 
     [DontSave]
-    public CaptionItem CaptionBasic { get; set; } = new CaptionItem("Basic Settings");
+    public CaptionItem CaptionBasic { get; set; } = new CaptionItem("Settings");
 
     [DisplayName("GitHub Token (PAT)")]
-    [Description("Generate a GitHub Personal Access Token (PAT) and enter it here.")]
-    [Required]
+    [Description("Needed for private repositories, and it raises GitHub's limit from 60 to 5,000 requests per hour. " +
+                 "A fine-grained token with read-only access to Contents is enough.")]
     [DontSave]
     public string GitHubToken { get; set; }
-    
+
     [Browsable(false)]
     public string EncryptedGitHubToken { get; set; }
 
-    public bool RestartServerAfterInstall { get; set; }
+    /// <summary>Result of Test Token. A list item rather than a caption, because the message can be long and a caption is cut off.</summary>
+    [DisplayName("Token check")]
+    [DontSave]
+    public GenericItemList TokenStatus { get; set; } = new GenericItemList();
 
     [DontSave]
-    [VisibleCondition(nameof(GitHubToken), SimpleCondition.IsNotNullOrEmpty)]
+    public ButtonItem TestTokenBtn =>
+        new ButtonItem
+        {
+            Icon    = IconNames.fact_check,
+            Caption = "Test Token",
+            Data1   = "TestToken"
+        };
+
+    [DisplayName("Restart Emby automatically after scheduled updates")]
+    [Description("Off by default. When on, the daily task restarts the server as soon as it installs an update. " +
+                 "Updates you start from this page never restart the server on their own.")]
+    public bool RestartServerAfterInstall { get; set; }
+
+    /// <summary>True once the installer's own repository has been offered for self-update (it is added once, never re-added after removal).</summary>
+    [Browsable(false)]
+    public bool SelfEntryHandled { get; set; }
+
+    [DontSave]
     public ButtonItem SaveTokenBtn =>
         new ButtonItem
         {
@@ -57,173 +143,20 @@ public class PluginUIOptions : EditableOptionsBase
             Data1   = "Save"
         };
 
-    [DontSave]
-    public SpacerItem Spacer1a { get; set; } = new SpacerItem();
-
-    [DontSave]
-    public ButtonItem Add =>
-        new ButtonItem
-        {
-            Icon    = IconNames.add,
-            Caption = "Add Repository",
-            Data1   = "Add"
-        };
-
-    [Browsable(false)]
-    [DontSave]
-    public IList<string> SelectedItemId { get; set; }
-
-    [DontSave]
-    public SpacerItem Spacer2 { get; set; } = new SpacerItem();
-
-    [Browsable(false)]
-    public List<ReposToProcess> Repos { get; set; } = new List<ReposToProcess>();
-
-    [Browsable(false)]
-    public List<PluginRegistry> PluginRegistries { get; set; } = new List<PluginRegistry>();
-
-    [DisplayName("Current Repositories")]
-    [DontSave]
-    [GridDataSource(nameof(Repos))]
-    [GridSelectionSource(nameof(SelectedItemId))]
-    public DxDataGrid Grid
-    {
-        get
-        {
-            var options = new DxGridOptions(new ReposToProcess(), "Id", false, true, true, false);
-
-            options.selection.mode         = DxGridSelection.SelectionMode.single;
-            options.columnResizingMode     = DxGridOptions.ColumnResizingMode.nextColumn;
-            options.heightMode             = DxGridOptions.GridHeightMode.medium;
-            options.allowColumnReordering  = true;
-            options.grouping.autoExpandAll = true;
-            options.focusedRowEnabled      = true;
-
-            foreach (var column in options.columns) column.visible = false;
-
-            var repo = options.columns.FirstOrDefault(e => e.dataField == nameof(ReposToProcess.Repository));
-            if (repo != null)
-            {
-                repo.caption      = "Repository";
-                repo.width        = 200;
-                repo.visibleIndex = 7;
-                repo.visible      = true;
-            }
-
-            var owner = options.columns.FirstOrDefault(e => e.dataField == nameof(ReposToProcess.Owner));
-            if (owner != null)
-            {
-                owner.caption      = "Owner";
-                owner.width        = 150;
-                owner.visibleIndex = 7;
-                owner.groupIndex   = 0;
-                owner.visible      = true;
-            }
-
-            var lastVersionDownloaded =
-                options.columns.FirstOrDefault(e => e.dataField == nameof(ReposToProcess.LastVersionDownloaded));
-            if (lastVersionDownloaded != null)
-            {
-                lastVersionDownloaded.caption      = "Last Version Downloaded";
-                lastVersionDownloaded.width        = 150;
-                lastVersionDownloaded.visibleIndex = 9;
-                lastVersionDownloaded.visible      = true;
-            }
-
-            var preRelCol = options.columns.FirstOrDefault(e => e.dataField == nameof(ReposToProcess.GetPreRelease));
-            if (preRelCol != null)
-            {
-                preRelCol.caption      = "Get PreRelease";
-                preRelCol.width        = 100;
-                preRelCol.visibleIndex = 20;
-                preRelCol.visible      = true;
-            }
-
-            var autoUpdateCol = options.columns.FirstOrDefault(e => e.dataField == nameof(ReposToProcess.AutoUpdate));
-            if (autoUpdateCol != null)
-            {
-                autoUpdateCol.caption      = "Auto Update";
-                autoUpdateCol.width        = 100;
-                autoUpdateCol.visibleIndex = 30;
-                autoUpdateCol.visible      = true;
-            }
-
-            var lastDateTimeChecked =
-                options.columns.FirstOrDefault(e => e.dataField == nameof(ReposToProcess.LastDateTimeChecked));
-            if (lastDateTimeChecked != null)
-            {
-                lastDateTimeChecked.caption      = "Last Checked";
-                lastDateTimeChecked.width        = 200;
-                lastDateTimeChecked.dataType     = DxGridColumn.ColumnDataType.datetime;
-                lastDateTimeChecked.visibleIndex = 40;
-                lastDateTimeChecked.visible      = true;
-            }
-
-            var urlCol = options.columns.FirstOrDefault(e => e.dataField == nameof(ReposToProcess.Url));
-            if (urlCol != null)
-            {
-                urlCol.caption      = "Url";
-                urlCol.width        = 400;
-                urlCol.visibleIndex = 50;
-                urlCol.visible      = true;
-            }
-
-            var filterCol = options.columns.FirstOrDefault(e => e.dataField == nameof(ReposToProcess.AssetNameFilter));
-            if (filterCol != null)
-            {
-                filterCol.caption      = "Asset Filter";
-                filterCol.width        = 120;
-                filterCol.visibleIndex = 45;
-                filterCol.visible      = true;
-            }
-
-            return new DxDataGrid(options);
-        }
-    }
-
-    [DontSave]
-    public ButtonItem Delete =>
-        new ButtonItem
-        {
-            Icon               = IconNames.delete_forever,
-            Caption            = "Remove Selected",
-            Data1              = "Remove",
-            ConfirmationPrompt = "Are you sure you want to remove the selected item?"
-        };
-
-    [DontSave]
-    public ButtonItem Edit =>
-        new ButtonItem
-        {
-            Icon    = IconNames.edit,
-            Caption = "Edit Selected",
-            Data1   = "Edit"
-        };
-
-    [DontSave]
-    public ButtonItem UpdateAll =>
-        new ButtonItem
-        {
-            Icon    = IconNames.system_update_alt,
-            Caption = "Update All Plugins",
-            Data1   = "UpdateAll",
-            ConfirmationPrompt = "Are you sure you want to update all plugins that have available updates?"
-        };
-
-    [DontSave]
-    public ButtonItem CheckAllForUpdates =>
-        new ButtonItem
-        {
-            Icon    = IconNames.refresh,
-            Caption = "Check All for Updates",
-            Data1   = "CheckAll"
-        };
+    // ---- Registries ------------------------------------------------------------------------------------------
 
     [DontSave]
     public SpacerItem Spacer3 { get; set; } = new SpacerItem();
 
     [DontSave]
     public CaptionItem CaptionRegistries { get; set; } = new CaptionItem("Plugin Registries");
+
+    [Browsable(false)]
+    public List<PluginRegistry> PluginRegistries { get; set; } = new List<PluginRegistry>();
+
+    [DisplayName("Registries")]
+    [DontSave]
+    public GenericItemList Registries { get; set; } = new GenericItemList();
 
     [DontSave]
     public ButtonItem AddRegistry =>
@@ -234,78 +167,6 @@ public class PluginUIOptions : EditableOptionsBase
             Data1   = "AddRegistry"
         };
 
-    [Browsable(false)]
-    [DontSave]
-    public IList<string> SelectedRegistryId { get; set; }
-
-    [DisplayName("Current Registries")]
-    [DontSave]
-    [GridDataSource(nameof(PluginRegistries))]
-    [GridSelectionSource(nameof(SelectedRegistryId))]
-    public DxDataGrid RegistryGrid
-    {
-        get
-        {
-            var options = new DxGridOptions(new PluginRegistry(), "Id", false, true, true, false);
-
-            options.selection.mode         = DxGridSelection.SelectionMode.single;
-            options.columnResizingMode     = DxGridOptions.ColumnResizingMode.nextColumn;
-            options.heightMode             = DxGridOptions.GridHeightMode.small;
-            options.allowColumnReordering  = true;
-            options.focusedRowEnabled      = true;
-
-            foreach (var column in options.columns) column.visible = false;
-
-            var nameCol = options.columns.FirstOrDefault(e => e.dataField == nameof(PluginRegistry.Name));
-            if (nameCol != null)
-            {
-                nameCol.caption      = "Registry Name";
-                nameCol.width        = 300;
-                nameCol.visibleIndex = 1;
-                nameCol.visible      = true;
-            }
-
-            var urlCol = options.columns.FirstOrDefault(e => e.dataField == nameof(PluginRegistry.RawUrl));
-            if (urlCol != null)
-            {
-                urlCol.caption      = "URL";
-                urlCol.width        = 500;
-                urlCol.visibleIndex = 2;
-                urlCol.visible      = true;
-            }
-
-            var enabledCol = options.columns.FirstOrDefault(e => e.dataField == nameof(PluginRegistry.Enabled));
-            if (enabledCol != null)
-            {
-                enabledCol.caption      = "Enabled";
-                enabledCol.width        = 100;
-                enabledCol.visibleIndex = 3;
-                enabledCol.visible      = true;
-            }
-
-            return new DxDataGrid(options);
-        }
-    }
-
-    [DontSave]
-    public ButtonItem DeleteRegistry =>
-        new ButtonItem
-        {
-            Icon               = IconNames.delete_forever,
-            Caption            = "Remove Registry",
-            Data1              = "RemoveRegistry",
-            ConfirmationPrompt = "Are you sure you want to remove the selected registry?"
-        };
-
-    [DontSave]
-    public ButtonItem EditRegistry =>
-        new ButtonItem
-        {
-            Icon    = IconNames.edit,
-            Caption = "Edit Registry",
-            Data1   = "EditRegistry"
-        };
-
     [DontSave]
     public CaptionItem RegistryLogs { get; set; } = new CaptionItem("")
                                                    {
@@ -314,11 +175,4 @@ public class PluginUIOptions : EditableOptionsBase
 
     [DontSave]
     public SpacerItem Spacer4 { get; set; } = new SpacerItem();
-
-    [DontSave]
-    public CaptionItem CaptionLatestReleases { get; set; } = new CaptionItem("Latest Releases");
-
-    [DisplayName("Releases")]
-    [DontSave]
-    public GenericItemList Releases { get; set; }
 }

@@ -44,6 +44,10 @@ public class GitHubReleaseAsset
     [DataMember(Name = "browser_download_url")]
     public string BrowserDownloadUrl { get; set; }
 
+    /// <summary>GitHub's own hash of the asset, e.g. "sha256:abc...". Not present on older releases.</summary>
+    [DataMember(Name = "digest")]
+    public string Digest { get; set; }
+
     public bool IsDll => Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>

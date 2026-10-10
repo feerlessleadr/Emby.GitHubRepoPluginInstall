@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using Emby.GitHubRepoPluginInstall.Helpers;
 using Emby.GitHubRepoPluginInstall.Models;
 using Emby.Web.GenericEdit;
 using Emby.Web.GenericEdit.Common;
@@ -61,9 +62,53 @@ public class RepoConfigUi : EditableOptionsBase
     public SpacerItem Spacer1 { get; set; } = new SpacerItem();
 
     [DisplayName("GitHub Repo URL")]
-    [Description("Enter the URL for the GitHub repository (or select from dropdown above)")]
+    [Description("Paste the repository address, or just owner/repository (for example alex-dev/emby-subtitle-sync).")]
     [Required]
     public string Url { get; set; }
+
+    /// <summary>File names on the repository's latest release. Filled in when editing an existing entry.</summary>
+    [Browsable(false)]
+    public List<string> AvailableAssets { get; set; } = new List<string>();
+
+    /// <summary>Set to a value when there are release files to pick from. Drives the picker's visibility.</summary>
+    [Browsable(false)]
+    public string AssetPickerFlag => AvailableAssets != null && AvailableAssets.Count > 0 ? "1" : null;
+
+    [Browsable(false)]
+    public IEnumerable<EditorSelectOption> AssetList
+    {
+        get
+        {
+            var options = new List<EditorSelectOption>
+                          {
+                              new EditorSelectOption { Name = "-- Choose a file to match --", Value = "", ShortName = "None", IsEnabled = true }
+                          };
+
+            foreach (var asset in AvailableAssets ?? new List<string>())
+            {
+                var filter = AssetFilterHelper.SuggestFilter(asset);
+                if (string.IsNullOrEmpty(filter)) continue;
+
+                options.Add(new EditorSelectOption
+                            {
+                                Name      = $"{asset}  (filter: {filter})",
+                                Value     = filter,
+                                ShortName = filter,
+                                ToolTip   = $"Only use release files whose name contains \"{filter}\"",
+                                IsEnabled = true
+                            });
+            }
+
+            return options;
+        }
+    }
+
+    [DisplayName("Pick from the latest release")]
+    [Description("Choosing a file fills in the filter below with the part of its name that stays the same between versions.")]
+    [SelectItemsSource(nameof(AssetList))]
+    [VisibleCondition(nameof(AssetPickerFlag), SimpleCondition.IsNotNullOrEmpty)]
+    [AutoPostBack("AssetSelected", nameof(SelectedAsset))]
+    public string SelectedAsset { get; set; }
 
     [DisplayName("Asset name filter (optional)")]
     [Description("Only use release files whose name contains this text. Example: Emby (picks Moonfin.Emby-*.zip, skips Moonfin.Server-*.zip / Jellyfin)")]

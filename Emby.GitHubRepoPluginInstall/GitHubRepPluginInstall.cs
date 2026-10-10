@@ -18,6 +18,9 @@ public class GitHubRepPluginInstall : BasePlugin, IHasThumbImage, IHasUIPages, I
 {
     public static readonly string PluginName = "GitHub Repo Plugin Install";
 
+    /// <summary>The repository this build is published from. Used to offer self-update in the repository list.</summary>
+    public const string SelfRepoUrl = "https://github.com/feerlessleadr/Emby.GitHubRepoPluginInstall";
+
     private readonly ILogger                       _logger;
     private readonly SecurePluginOptionsStore      _pluginOptionsStore;
     private readonly IServerApplicationHost        _applicationHost;

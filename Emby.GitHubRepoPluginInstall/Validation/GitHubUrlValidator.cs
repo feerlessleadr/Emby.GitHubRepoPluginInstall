@@ -20,7 +20,7 @@ public static class GitHubUrlValidator
         }
 
         // Auto-correct common URL formats
-        var correctedUrl = AutoCorrectUrl(url);
+        var correctedUrl = Normalize(url);
         var wasCorrect = correctedUrl == url;
 
         var match = GitHubUrlRegex.Match(correctedUrl);
@@ -80,12 +80,45 @@ public static class GitHubUrlValidator
         }
     }
 
+    private static readonly Regex ShorthandRegex = new Regex(
+        @"^([A-Za-z0-9][A-Za-z0-9-]*)/([A-Za-z0-9_][A-Za-z0-9._-]*)$", RegexOptions.Compiled);
+
+    private static readonly Regex SshRegex = new Regex(
+        @"^git@github\.com:([^/]+)/(.+?)(?:\.git)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Returns the canonical "https://github.com/owner/repo" form for anything the validator accepts
+    /// (owner/repo, ssh addresses, .git suffixes, /releases links). Other input is returned trimmed.
+    /// </summary>
+    public static string Normalize(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return url;
+
+        var corrected = AutoCorrectUrl(url);
+        var match     = GitHubUrlRegex.Match(corrected);
+        if (!match.Success) return corrected;
+
+        var repository = match.Groups[2].Value;
+        if (repository.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+            repository = repository.Substring(0, repository.Length - 4);
+
+        return $"https://github.com/{match.Groups[1].Value}/{repository}";
+    }
+
     private static string AutoCorrectUrl(string url)
     {
         if (string.IsNullOrWhiteSpace(url))
             return url;
 
         url = url.Trim();
+
+        var ssh = SshRegex.Match(url);
+        if (ssh.Success)
+            return $"https://github.com/{ssh.Groups[1].Value}/{ssh.Groups[2].Value}";
+
+        // "owner/repo" shorthand
+        if (ShorthandRegex.IsMatch(url))
+            return "https://github.com/" + url;
 
         // Add https:// if missing
         if (!url.StartsWith("http://") && !url.StartsWith("https://"))

@@ -11,6 +11,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="Emby.GitHubRepoPluginInstall.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
         <None Remove="ThumbImage.jpg"/>
         <EmbeddedResource Include="ThumbImage.jpg"/>
         <EmbeddedResource Include="..\DefaultRegistry\plugins.json">
