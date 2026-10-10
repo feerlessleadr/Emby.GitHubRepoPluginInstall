@@ -77,14 +77,19 @@ jobs:
           ls -l dist
 
       - name: Write the release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${GITHUB_REF_NAME}"
-          notes=""
+          : > release-notes.md
           # An annotated tag carries its own message. A lightweight tag has none.
-          if [ "$(git cat-file -t "refs/tags/$tag")" = "tag" ]; then
-            notes="$(git tag -l --format='%(contents)' "$tag")"
+          # actions/checkout replaces the tag with a plain pointer to the commit, which drops the message,
+          # so it is read from GitHub rather than from the checked-out repository.
+          object_type="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.type')"
+          if [ "$object_type" = "tag" ]; then
+            tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha')"
+            gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}" --jq '.message' > release-notes.md
           fi
-          printf '%s' "$notes" > release-notes.md
           if [ -s release-notes.md ]; then echo "Using the tag message as the release notes"; else echo "No tag message; GitHub will generate the notes"; fi
 
       - name: Create the release
