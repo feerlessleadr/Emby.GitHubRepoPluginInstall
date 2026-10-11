@@ -1,4 +1,4 @@
-# GitHub Repo Plugin Installer
+﻿# GitHub Repo Plugin Installer
 
 Installs and updates Emby plugins straight from their GitHub releases. Add a repository once and the plugin checks it every day, installs new releases, keeps a copy of what it replaced, and shows you what happened.
 
@@ -132,6 +132,16 @@ Taken on Emby Server 4.10.1 with three example plugins: one that failed, one wit
 
 ![The details of a run summary](imgs/PluginActivityDetail.png)
 
+## Controlling the plugin from a phone app
+
+The plugin can serve a small REST API inside Emby's own web server, so an administrator's app can check, update, restore, add and remove plugins. It uses the administrator's normal Emby token, so there is no extra port or login.
+
+It is **off by default**. Two switches under **Settings** on the plugin page control it:
+
+- **Allow the phone app to control this plugin** turns the API on (checking, updating, restoring, settings, restart).
+- **...and to add and remove plugins** is separate and also off by default, because adding a plugin installs someone else's code on your server.
+
+The app can't change these switches. `GET /emby/Plugins/GitHubRepoPluginInstall/info` reports the plugin version and `ApiVersion`. The full reference, with every endpoint, example JSON, the push events and Kotlin types, is in [docs/EMBIDEXTROUS-INTEGRATION.md](docs/EMBIDEXTROUS-INTEGRATION.md).
 ## Troubleshooting
 
 Failed plugins show the reason on their card. The common ones:

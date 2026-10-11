@@ -8,6 +8,8 @@
     <ItemGroup>
         <PackageReference Include="MediaBrowser.Common" Version="4.9.0.52-beta" />
         <PackageReference Include="MediaBrowser.Server.Core" Version="4.9.0.52-beta" />
+        <!-- Only for the compiler: Emby ships its own copy, and the response writer is one of its types -->
+        <PackageReference Include="System.IO.Pipelines" Version="6.0.0" ExcludeAssets="runtime" />
     </ItemGroup>
 
     <ItemGroup>

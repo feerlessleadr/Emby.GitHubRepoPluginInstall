@@ -148,6 +148,8 @@ public class RepoUpdateService
                             p.StartedUtc = record.StartedUtc;
                         });
 
+            RunEvents.Raise(PushEvents.RunStarted, new RunEventData { Trigger = trigger, Total = repos.Count, CheckOnly = mode == RunMode.CheckOnly });
+
             FileOps.CleanupOldFiles(paths.PluginsPath);
 
             var backup    = new PluginBackupService(paths.PluginsPath, _logger);
@@ -169,6 +171,7 @@ public class RepoUpdateService
                     store.SetOptions(options);
 
                     SetProgress(p => p.Done++);
+                    RunEvents.Raise(PushEvents.RunProgress, new RunEventData { Trigger = trigger, Total = repos.Count, Done = record.Results.Count, Current = repo.Repository, CheckOnly = mode == RunMode.CheckOnly });
                     progress?.Report(record.Results.Count * 100.0 / Math.Max(1, repos.Count));
                 }
             }
@@ -190,6 +193,22 @@ public class RepoUpdateService
                 else
                     _appHost.NotifyPendingRestart();
             }
+
+            RunEvents.Raise(PushEvents.RunCompleted, new RunEventData
+                                                     {
+                                                         Trigger        = trigger,
+                                                         Total          = record.Results.Count,
+                                                         Done           = record.Results.Count,
+                                                         CheckOnly      = mode == RunMode.CheckOnly,
+                                                         Updated        = record.Updated,
+                                                         UpToDate       = record.UpToDate,
+                                                         Failed         = record.Failed,
+                                                         Waiting        = record.Waiting,
+                                                         UpdatedPlugins = record.Results.Where(r => r.Outcome == RepoOutcome.Updated).Select(r => r.Name).ToArray(),
+                                                         FailedPlugins  = record.Results.Where(r => r.Outcome == RepoOutcome.Failed).Select(r => r.Name).ToArray()
+                                                     });
+            if (record.Updated > 0)
+                RunEvents.Raise(PushEvents.RestartPending, new RunEventData { Trigger = trigger, Updated = record.Updated, UpdatedPlugins = record.Results.Where(r => r.Outcome == RepoOutcome.Updated).Select(r => r.Name).ToArray() });
 
             return record;
         }

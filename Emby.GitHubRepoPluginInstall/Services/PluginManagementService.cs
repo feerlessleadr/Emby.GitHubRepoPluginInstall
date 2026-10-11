@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -98,6 +98,18 @@ public class PluginManagementService
 
     private PluginUIOptions Options => _options();
 
+    // Every successful change is announced, so an open phone app can refresh without being asked
+    private static ManageResult Ok(string reason, string message, ReposToProcess repo = null, bool restart = false)
+    {
+        RunEvents.Raise(PushEvents.PluginsChanged, new ChangeEventData
+                                                    {
+                                                        Reason = reason, PluginId = repo?.Id, PluginName = repo?.Repository, RestartNeeded = restart
+                                                    });
+        if (restart)
+            RunEvents.Raise(PushEvents.RestartPending, new RunEventData { Updated = 0, UpdatedPlugins = repo == null ? new string[0] : new[] { repo.Repository } });
+        return ManageResult.Success(message, repo, restart);
+    }
+
     private RuntimeStateStore StateStore => new RuntimeStateStore(_appHost, _logger, GitHubRepPluginInstall.PluginName);
 
     public ReposToProcess FindRepo(string repoId) =>
@@ -114,7 +126,7 @@ public class PluginManagementService
 
         repo.AutoUpdate = value ?? !repo.AutoUpdate;
         _save();
-        return ManageResult.Success($"Auto-update is now {(repo.AutoUpdate ? "on" : "off")} for {repo.Repository}.", repo);
+        return Ok("SettingsChanged", $"Auto-update is now {(repo.AutoUpdate ? "on" : "off")} for {repo.Repository}.", repo);
     }
 
     /// <summary>Changes the settings of a plugin that is already in the list. Only the fields given are changed.</summary>
@@ -129,7 +141,7 @@ public class PluginManagementService
         if (assetNameFilter != null) repo.AssetNameFilter = assetNameFilter;
 
         _save();
-        return ManageResult.Success($"Saved the settings for {repo.Repository}.", repo);
+        return Ok("SettingsChanged", $"Saved the settings for {repo.Repository}.", repo);
     }
 
     /// <summary>Deletes the plugin's file (if any) and takes it off the list.</summary>
@@ -163,7 +175,7 @@ public class PluginManagementService
 
             _save();
 
-            return ManageResult.Success(fileDeleted
+            return Ok("Removed", fileDeleted
                                             ? $"Removed {item.Repository} and deleted its file. Restart Emby to finish."
                                             : $"Removed {item.Repository} from the list.",
                                         item,
@@ -216,7 +228,7 @@ public class PluginManagementService
             _save();
 
             var which = backup.Version == "unknown" ? "the previous version of" : backup.Version + " of";
-            return ManageResult.Success($"Restored {which} {repo.Repository}. Auto-update is now off for it.", repo, restart);
+            return Ok("Restored", $"Restored {which} {repo.Repository}. Auto-update is now off for it.", repo, restart);
         }
         catch (Exception ex)
         {
@@ -246,9 +258,10 @@ public class PluginManagementService
         bool IsDuplicate(string currentId) =>
             Options.Repos.Any(x => x.RepoKey == key && x.Id != currentId);
 
+        var isEdit = !string.IsNullOrEmpty(ui.Id);
         ReposToProcess saved;
 
-        if (!string.IsNullOrEmpty(ui.Id))
+        if (isEdit)
         {
             saved = Options.Repos.Find(x => x.Id == ui.Id);
             if (saved == null)
@@ -291,7 +304,7 @@ public class PluginManagementService
             _logger.Debug($"Initial check of {url} was skipped: {UI.MainPageView.Brief(ex.Message)}");
         }
 
-        return ManageResult.Success(validation.Message ?? $"Saved {saved.Repository}.", saved);
+        return Ok(isEdit ? "SettingsChanged" : "Added", validation.Message ?? $"Saved {saved.Repository}.", saved);
     }
 
     // ---- Registries -------------------------------------------------------------------------------------------
@@ -304,7 +317,7 @@ public class PluginManagementService
 
         registry.Enabled = enabled ?? !registry.Enabled;
         _save();
-        return ManageResult.Success($"{registry.Name} is now {(registry.Enabled ? "on" : "off")}.");
+        return Ok("RegistryChanged", $"{registry.Name} is now {(registry.Enabled ? "on" : "off")}.");
     }
 
     public ManageResult RemoveRegistry(string registryId)
@@ -318,7 +331,7 @@ public class PluginManagementService
 
         Options.PluginRegistries.Remove(registry);
         _save();
-        return ManageResult.Success($"Removed registry: {registry.Name}");
+        return Ok("RegistryChanged", $"Removed registry: {registry.Name}");
     }
 
     /// <summary>Adds a registry, or changes the one named by <see cref="RegistrySettings.Id"/>.</summary>
@@ -352,6 +365,6 @@ public class PluginManagementService
         }
 
         _save();
-        return ManageResult.Success($"Saved registry: {settings.Name}");
+        return Ok("RegistryChanged", $"Saved registry: {settings.Name}");
     }
 }
