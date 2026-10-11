@@ -50,6 +50,19 @@ public class PluginUIOptions : EditableOptionsBase
     [DontSave]
     public CaptionItem CaptionLatestReleases { get; set; } = new CaptionItem("Plugins");
 
+    /// <summary>
+    /// Sits above the plugin cards and is only visible while at least one plugin has an update. It installs those
+    /// plugins and nothing else. The caption and the confirmation text are filled in when the page is built.
+    /// </summary>
+    [DontSave]
+    public ButtonItem UpdateAvailableBtn { get; set; } = new ButtonItem
+                                                         {
+                                                             Caption   = "Update plugins with updates",
+                                                             Data1     = "UpdateAvailable",
+                                                             Icon      = IconNames.system_update_alt,
+                                                             IsVisible = false
+                                                         };
+
     [DisplayName("Status of each plugin")]
     [DontSave]
     public GenericItemList Releases { get; set; } = new GenericItemList();

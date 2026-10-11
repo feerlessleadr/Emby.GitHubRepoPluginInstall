@@ -241,6 +241,129 @@ public class MainPageViewTests
         Assert.Single(view.PluginUiOptions.RunHistory);
     }
 
+    // ---- "Update N plugins" above the cards: only the plugins that have an update ----------------------------
+
+    // Four plugins in four situations. Only the two that show an update may be touched.
+    private static async Task<(ReposToProcess withUpdate, ReposToProcess manual, ReposToProcess current, ReposToProcess unchecked_, ReposToProcess broken)>
+        SetUpMixedPlugins(TestEnv env)
+    {
+        var a = env.AddRepo("Has.Update", installed: "v1", fileName: "Has.Update.dll");
+        var m = env.AddRepo("Manual.Update", auto: false, installed: "v1", fileName: "Manual.Update.dll");
+        var c = env.AddRepo("Is.Current", installed: "v2", fileName: "Is.Current.dll");
+        var u = env.AddRepo("Never.Checked");
+        var b = env.AddRepo("Is.Broken", installed: "v1", fileName: "Is.Broken.dll");
+        foreach (var f in new[] { "Has.Update.dll", "Manual.Update.dll", "Is.Current.dll", "Is.Broken.dll" })
+            File.WriteAllText(env.PluginFile(f), "old " + f);
+
+        env.Publish("Has.Update", "v2");
+        env.Publish("Manual.Update", "v2");
+        env.Publish("Is.Current", "v2");
+        env.Publish("Never.Checked", "v9");            // a newer release exists, but nothing has looked yet
+        env.Handler.OnJson("/repos/alex/Is.Broken/releases", "{}", HttpStatusCode.NotFound);
+
+        // look at everything except Never.Checked, so it has no status yet
+        foreach (var id in new[] { a.Id, m.Id, c.Id, b.Id })
+            await env.Service.RunAsync(RepoUpdateService.TriggerManual, RunMode.CheckOnly, id);
+
+        return (a, m, c, u, b);
+    }
+
+    [Fact]
+    public async Task TheUpdateButton_IsHiddenAtFirst_AndAppearsOnceAnUpdateIsFound()
+    {
+        using var env = new TestEnv();
+        env.AddRepo("Cool.Plugin", installed: "v1");
+        env.Publish("Cool.Plugin", "v2");
+        var view = OpenPage(env);
+        Assert.False(view.PluginUiOptions.UpdateAvailableBtn.IsVisible);
+
+        await Press(view, "CheckAll");
+
+        var button = view.PluginUiOptions.UpdateAvailableBtn;
+        Assert.True(button.IsVisible);
+        Assert.Equal("Update 1 plugin", button.Caption);
+        Assert.Contains("Cool.Plugin", button.ConfirmationPrompt);
+    }
+
+    [Fact]
+    public async Task TheUpdateButton_UpdatesOnlyPluginsThatHaveAnUpdate()
+    {
+        using var env = new TestEnv();
+        var (a, m, c, u, b) = await SetUpMixedPlugins(env);
+        var view = OpenPage(env);
+        Assert.Equal("Update 2 plugins", view.PluginUiOptions.UpdateAvailableBtn.Caption);
+        var requestsBefore = env.Handler.Requests.Count;
+
+        await Press(view, "UpdateAvailable");
+        await WaitForRunToFinish();
+
+        // the two with updates were installed, including the one with auto-update off
+        Assert.Equal("v2", env.Repo("Has.Update").LastVersionDownloaded);
+        Assert.Equal("v2", env.Repo("Manual.Update").LastVersionDownloaded);
+        Assert.NotEqual("old Has.Update.dll", File.ReadAllText(env.PluginFile("Has.Update.dll")));
+        Assert.NotEqual("old Manual.Update.dll", File.ReadAllText(env.PluginFile("Manual.Update.dll")));
+
+        // everything else was left exactly as it was, and not even contacted
+        Assert.Equal("v2", env.Repo("Is.Current").LastVersionDownloaded);
+        Assert.Equal("old Is.Current.dll", File.ReadAllText(env.PluginFile("Is.Current.dll")));
+        Assert.Null(env.Repo("Never.Checked").LastVersionDownloaded);
+        Assert.False(File.Exists(env.PluginFile("Never.Checked.dll")));
+        Assert.Equal("v1", env.Repo("Is.Broken").LastVersionDownloaded);
+        Assert.Equal("old Is.Broken.dll", File.ReadAllText(env.PluginFile("Is.Broken.dll")));
+
+        var after = env.Handler.Requests.Skip(requestsBefore).ToList();
+        Assert.All(after, r => Assert.True(r.Contains("Has.Update") || r.Contains("Manual.Update"), "unexpected request: " + r));
+    }
+
+    [Fact]
+    public async Task TheUpdateButton_RecordsOneRunWithJustThosePlugins()
+    {
+        using var env = new TestEnv();
+        await SetUpMixedPlugins(env);
+        var view = OpenPage(env);
+
+        await Press(view, "UpdateAvailable");
+        await WaitForRunToFinish();
+
+        var run = Assert.Single(env.NewState().Load().History);
+        Assert.Equal("Manual", run.Trigger);
+        Assert.Equal(new[] { "Has.Update", "Manual.Update" }, run.Results.Select(r => r.Name).OrderBy(n => n).ToArray());
+        Assert.All(run.Results, r => Assert.Equal(RepoOutcome.Updated, r.Outcome));
+    }
+
+    [Fact]
+    public async Task AfterTheUpdateButtonRuns_ItDisappears_AndTheRestartBannerShowsWhatChanged()
+    {
+        using var env = new TestEnv();
+        await SetUpMixedPlugins(env);
+        var view = OpenPage(env);
+
+        await Press(view, "UpdateAvailable");
+        await WaitForRunToFinish();
+        await Press(view, "RefreshView");
+
+        Assert.False(view.PluginUiOptions.UpdateAvailableBtn.IsVisible);
+        var banner = Assert.Single(view.PluginUiOptions.RestartBanner);
+        Assert.Equal("2 plugins changed, listed below", banner.SecondaryText);
+    }
+
+    [Fact]
+    public async Task TheUpdateButton_WithNothingToUpdate_SaysSo_AndStartsNoRun()
+    {
+        using var env = new TestEnv();
+        env.AddRepo("Cool.Plugin", installed: "v1");
+        env.Publish("Cool.Plugin", "v1");
+        var view = OpenPage(env);
+        await Press(view, "CheckAll");
+        var requestsBefore = env.Handler.Requests.Count;
+
+        await Press(view, "UpdateAvailable");
+
+        Assert.Contains("No plugins have an update", view.PluginUiOptions.Logs.Caption);
+        Assert.Equal(requestsBefore, env.Handler.Requests.Count);
+        Assert.False(RepoUpdateService.GetProgress().IsRunning);
+    }
+
     [Fact]
     public async Task UpdateEverything_AlsoInstallsPluginsWithAutoUpdateOff()
     {

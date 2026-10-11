@@ -298,6 +298,51 @@ public class RepoUpdateServiceTests
     }
 
     [Fact]
+    public async Task RunForRepos_TouchesOnlyTheListedPlugins()
+    {
+        using var env = new TestEnv();
+        var a = env.AddRepo("A.Plugin");
+        var b = env.AddRepo("B.Plugin");
+        env.AddRepo("C.Plugin");
+        env.Publish("A.Plugin", "v1");
+        env.Publish("B.Plugin", "v1");
+        env.Publish("C.Plugin", "v1");
+
+        var run = await env.Service.RunForReposAsync(RepoUpdateService.TriggerManual, RunMode.All, new[] { a.Id, b.Id });
+
+        Assert.Equal(new[] { "A.Plugin", "B.Plugin" }, run.Results.Select(r => r.Name).OrderBy(n => n).ToArray());
+        Assert.Null(env.Repo("C.Plugin").LastVersionDownloaded);
+        Assert.DoesNotContain(env.Handler.Requests, r => r.Contains("C.Plugin"));
+    }
+
+    [Fact]
+    public async Task RunForRepos_WithNoIds_DoesNothing_AndRecordsNoRun()
+    {
+        using var env = new TestEnv();
+        env.AddRepo("A.Plugin");
+        env.Publish("A.Plugin", "v1");
+
+        var run = await env.Service.RunForReposAsync(RepoUpdateService.TriggerManual, RunMode.All, new string[0]);
+
+        Assert.Empty(run.Results);
+        Assert.Empty(env.Handler.Requests);
+        Assert.Empty(env.NewState().Load().History);
+        Assert.Empty(env.HostState.Calls);
+    }
+
+    [Fact]
+    public async Task RunForRepos_IgnoresAnIdThatNoLongerExists()
+    {
+        using var env = new TestEnv();
+        var a = env.AddRepo("A.Plugin");
+        env.Publish("A.Plugin", "v1");
+
+        var run = await env.Service.RunForReposAsync(RepoUpdateService.TriggerManual, RunMode.All, new[] { a.Id, "removed-meanwhile" });
+
+        Assert.Equal("A.Plugin", Assert.Single(run.Results).Name);
+    }
+
+    [Fact]
     public async Task CheckOnly_InstallsNothing_AndLeavesNoHistory()
     {
         using var env = new TestEnv();

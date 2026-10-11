@@ -317,6 +317,76 @@ public class StatusListsTests
         Assert.Equal(ItemStatus.Succeeded, list[1].Status);
     }
 
+    // ---- The "update plugins with updates" button ------------------------------------------------------------------
+
+    [Fact]
+    public void UpdateButton_IsHidden_WhenNothingHasAnUpdate()
+    {
+        var repos = new[]
+        {
+            Repo("fine", "1", "1"),
+            Repo("broken", error: "boom"),
+            Repo("empty"),                                                   // checked, no release
+            new ReposToProcess { Url = "https://github.com/a/never" }         // never checked
+        };
+
+        var button = StatusLists.BuildUpdateAvailableButton(repos);
+
+        Assert.False(button.IsVisible);
+        Assert.Equal("UpdateAvailable", button.Data1);
+    }
+
+    [Fact]
+    public void UpdateButton_IsHidden_ForAnEmptyList()
+    {
+        Assert.False(StatusLists.BuildUpdateAvailableButton(new ReposToProcess[0]).IsVisible);
+        Assert.False(StatusLists.BuildUpdateAvailableButton(null).IsVisible);
+    }
+
+    [Fact]
+    public void UpdateButton_SaysHowManyItWillUpdate_AndNamesThemInTheConfirmation()
+    {
+        var one = StatusLists.BuildUpdateAvailableButton(new[] { Repo("fine", "1", "1"), Repo("newer", "2", "1") });
+        var two = StatusLists.BuildUpdateAvailableButton(new[] { Repo("zeta", "2", "1"), Repo("alpha", "3", "2"), Repo("fine", "1", "1") });
+
+        Assert.True(one.IsVisible);
+        Assert.Equal("Update 1 plugin", one.Caption);
+        Assert.Contains("newer", one.ConfirmationPrompt);
+        Assert.DoesNotContain("fine", one.ConfirmationPrompt);
+
+        Assert.Equal("Update 2 plugins", two.Caption);
+        Assert.Contains("alpha, zeta", two.ConfirmationPrompt);              // alphabetical
+        Assert.Contains("Other plugins are left alone", two.ConfirmationPrompt);
+    }
+
+    [Fact]
+    public void UpdateButton_CountsPluginsWithAutoUpdateOff_ButNotFailedOnes()
+    {
+        var repos = new[]
+        {
+            Repo("auto", "2", "1"),
+            Repo("manual", "2", "1", auto: false),
+            Repo("broken", "2", "1", error: "boom")
+        };
+
+        var updates = StatusLists.ReposWithUpdates(repos);
+
+        Assert.Equal(new[] { "auto", "manual" }, updates.Select(r => r.Repository).ToArray());
+        Assert.Equal("Update 2 plugins", StatusLists.BuildUpdateAvailableButton(repos).Caption);
+    }
+
+    [Fact]
+    public void UpdateButton_ConfirmationListsAtMostFiveNames()
+    {
+        var repos = Enumerable.Range(1, 8).Select(i => Repo("plugin" + i, "2", "1")).ToArray();
+
+        var button = StatusLists.BuildUpdateAvailableButton(repos);
+
+        Assert.Equal("Update 8 plugins", button.Caption);
+        Assert.Contains("plugin1, plugin2, plugin3, plugin4, plugin5 and 3 more", button.ConfirmationPrompt);
+        Assert.DoesNotContain("plugin6", button.ConfirmationPrompt);
+    }
+
     // ---- The page stylesheet: full width, and text that wraps instead of being cut off -----------------------------
 
     // Found on a real server: Emby limits plugin pages to 80 characters wide, so on a big screen the page used about

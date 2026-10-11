@@ -78,6 +78,7 @@ internal class MainPageView : PluginPageView
             case "Edit":
             case "Save":
             case "Download":
+            case "UpdateAvailable":
             case "UpdateAll":
             case "RunNow":
             case "CheckAll":
@@ -112,6 +113,9 @@ internal class MainPageView : PluginPageView
 
             case "RunNow":
                 return await StartBackgroundRunAsync(RunMode.Auto);
+
+            case "UpdateAvailable":
+                return await StartBackgroundRunAsync(RunMode.All, onlyWithUpdates: true);
 
             case "UpdateAll":
                 return await StartBackgroundRunAsync(RunMode.All);
@@ -258,7 +262,8 @@ internal class MainPageView : PluginPageView
     }
 
     // Runs in the background so the page doesn't hang while many plugins download. The summary card shows progress.
-    private async Task<IPluginUIView> StartBackgroundRunAsync(RunMode mode)
+    /// <param name="onlyWithUpdates">When true, only the plugins that currently show an update are touched.</param>
+    private async Task<IPluginUIView> StartBackgroundRunAsync(RunMode mode, bool onlyWithUpdates = false)
     {
         if (RepoUpdateService.GetProgress().IsRunning)
         {
@@ -268,6 +273,19 @@ internal class MainPageView : PluginPageView
         }
 
         SyncFromStore();
+
+        string[] ids = null;
+        if (onlyWithUpdates)
+        {
+            ids = StatusLists.ReposWithUpdates(PluginUiOptions.Repos).Select(r => r.Id).ToArray();
+            if (ids.Length == 0)
+            {
+                Say("No plugins have an update right now. Click Check for updates to look again.");
+                RefreshView();
+                return this;
+            }
+        }
+
         SaveOptions();
 
         var service = UpdateService;
@@ -275,7 +293,10 @@ internal class MainPageView : PluginPageView
                      {
                          try
                          {
-                             await service.RunAsync(RepoUpdateService.TriggerManual, mode).ConfigureAwait(false);
+                             if (ids != null)
+                                 await service.RunForReposAsync(RepoUpdateService.TriggerManual, mode, ids).ConfigureAwait(false);
+                             else
+                                 await service.RunAsync(RepoUpdateService.TriggerManual, mode).ConfigureAwait(false);
                          }
                          catch (InvalidOperationException)
                          {
@@ -290,9 +311,11 @@ internal class MainPageView : PluginPageView
         // Give the run a moment to register so the card shows it as started
         await Task.Delay(400);
 
-        Say(mode == RunMode.All
-                ? "Updating every plugin. The Last run card shows progress; click Refresh to update it."
-                : "Update run started. The Last run card shows progress; click Refresh to update it.");
+        Say(ids != null
+                ? $"Updating {ids.Length} plugin(s). The Last run card shows progress; click Refresh to update it."
+                : mode == RunMode.All
+                    ? "Updating every plugin. The Last run card shows progress; click Refresh to update it."
+                    : "Update run started. The Last run card shows progress; click Refresh to update it.");
         RefreshView();
         return this;
     }
@@ -797,6 +820,7 @@ internal class MainPageView : PluginPageView
                                                          RepoUpdateService.GetProgress(),
                                                          !string.IsNullOrEmpty(options.GitHubToken));
         options.Releases      = StatusLists.BuildPlugins(options.Repos, RunningNote);
+        options.UpdateAvailableBtn = StatusLists.BuildUpdateAvailableButton(options.Repos);
         options.RunHistory    = StatusLists.BuildHistory(state.History);
         options.Registries    = StatusLists.BuildRegistries(options.PluginRegistries);
     }

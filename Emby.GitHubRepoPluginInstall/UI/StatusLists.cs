@@ -179,6 +179,50 @@ internal static class StatusLists
         }
     }
 
+    /// <summary>The plugins that currently show an update, whether or not auto-update is on for them.</summary>
+    public static List<ReposToProcess> ReposWithUpdates(IEnumerable<ReposToProcess> repos)
+    {
+        return (repos ?? Enumerable.Empty<ReposToProcess>())
+               .Where(r =>
+               {
+                   var status = r.GetStatus();
+                   return status == RepoStatus.UpdateAvailable || status == RepoStatus.UpdateWaiting;
+               })
+               .OrderBy(r => r.Repository, StringComparer.OrdinalIgnoreCase)
+               .ToList();
+    }
+
+    private const int NamesInPrompt = 5;
+
+    /// <summary>
+    /// The button above the plugin cards. It is hidden unless some plugin has an update, says how many it will update,
+    /// and its confirmation names them, because installing is not something to do by accident.
+    /// </summary>
+    public static ButtonItem BuildUpdateAvailableButton(IEnumerable<ReposToProcess> repos)
+    {
+        var updates = ReposWithUpdates(repos);
+        var button = new ButtonItem
+                     {
+                         Caption   = "Update plugins with updates",
+                         Data1     = "UpdateAvailable",
+                         Icon      = IconNames.system_update_alt,
+                         IsVisible = updates.Count > 0
+                     };
+
+        if (updates.Count == 0) return button;
+
+        button.Caption = updates.Count == 1 ? "Update 1 plugin" : $"Update {updates.Count} plugins";
+
+        var names = string.Join(", ", updates.Take(NamesInPrompt).Select(r => r.Repository));
+        if (updates.Count > NamesInPrompt) names += $" and {updates.Count - NamesInPrompt} more";
+
+        button.ConfirmationPrompt = updates.Count == 1
+            ? $"Install the newer version of {names}?"
+            : $"Install the newer version of these {updates.Count} plugins: {names}? Other plugins are left alone.";
+
+        return button;
+    }
+
     /// <param name="runningNote">Returns text like "Running 2.3.0, but the installed file is 2.4.1", or null.</param>
     public static GenericItemList BuildPlugins(IEnumerable<ReposToProcess> repos, Func<ReposToProcess, string> runningNote = null)
     {

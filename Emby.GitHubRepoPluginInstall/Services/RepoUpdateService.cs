@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -90,11 +91,36 @@ public class RepoUpdateService
     /// <summary>
     /// Runs one pass. Throws <see cref="InvalidOperationException"/> if another pass is already running.
     /// </summary>
-    public async Task<RunRecord> RunAsync(string trigger,
-                                          RunMode mode,
-                                          string onlyRepoId = null,
-                                          IProgress<double> progress = null,
-                                          CancellationToken cancellationToken = default)
+    public Task<RunRecord> RunAsync(string trigger,
+                                    RunMode mode,
+                                    string onlyRepoId = null,
+                                    IProgress<double> progress = null,
+                                    CancellationToken cancellationToken = default)
+    {
+        var only = onlyRepoId == null ? null : new HashSet<string> { onlyRepoId };
+        return RunCoreAsync(trigger, mode, only, progress, cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs one pass over just the plugins with these ids. Used by "Update plugins with updates", which should touch
+    /// only those plugins and leave everything else alone.
+    /// </summary>
+    public Task<RunRecord> RunForReposAsync(string trigger,
+                                            RunMode mode,
+                                            IEnumerable<string> repoIds,
+                                            IProgress<double> progress = null,
+                                            CancellationToken cancellationToken = default)
+    {
+        if (repoIds == null) throw new ArgumentNullException(nameof(repoIds));
+
+        return RunCoreAsync(trigger, mode, new HashSet<string>(repoIds), progress, cancellationToken);
+    }
+
+    private async Task<RunRecord> RunCoreAsync(string trigger,
+                                               RunMode mode,
+                                               HashSet<string> onlyRepoIds,
+                                               IProgress<double> progress,
+                                               CancellationToken cancellationToken)
     {
         if (!await RunLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
             throw new InvalidOperationException("An update run is already in progress.");
@@ -110,7 +136,7 @@ public class RepoUpdateService
             var paths      = _appHost.Resolve<IApplicationPaths>();
             var options    = store.GetOptions();
 
-            var repos = options.Repos.Where(r => onlyRepoId == null || r.Id == onlyRepoId).ToList();
+            var repos = options.Repos.Where(r => onlyRepoIds == null || onlyRepoIds.Contains(r.Id)).ToList();
 
             SetProgress(p =>
                         {
