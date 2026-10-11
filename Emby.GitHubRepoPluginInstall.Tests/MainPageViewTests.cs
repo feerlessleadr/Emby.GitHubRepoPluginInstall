@@ -141,7 +141,7 @@ public class MainPageViewTests
         var view = OpenPage(env);
         var o = view.PluginUiOptions;
 
-        Assert.Equal("No runs yet", Assert.Single(o.RunSummary).PrimaryText);
+        Assert.StartsWith("No runs yet", Assert.Single(o.RunSummary).PrimaryText);
         Assert.Equal(2, o.Releases.Count);
         Assert.Empty(o.RestartBanner);
         Assert.Null(o.RestartFlag);
@@ -596,27 +596,7 @@ public class MainPageViewTests
     }
 
     // Found on a real Emby server: the long "classic token" warning was cut off because captions show one line.
-    [Fact]
-    public async Task TestToken_ALongResultIsWrapped_SoNothingIsCutOff()
-    {
-        using var env = new TestEnv();
-        env.Handler.OnJson("/rate_limit", "{}", HttpStatusCode.OK, r =>
-        {
-            r.Headers.Add("X-RateLimit-Limit", "5000");
-            r.Headers.Add("X-RateLimit-Remaining", "4999");
-            r.Headers.Add("X-RateLimit-Reset", DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds().ToString());
-            r.Headers.Add("X-OAuth-Scopes", "repo");
-        });
-        var view = OpenPage(env);
-
-        await Press(view, "TestToken");
-
-        var text = Assert.Single(view.PluginUiOptions.TokenStatus).PrimaryText;
-        var lines = text.Split(new[] { "<br/>" }, StringSplitOptions.None);
-        Assert.True(lines.Length >= 3);
-        Assert.All(lines, l => Assert.True(l.Length <= StatusLists.WrapWidth + 10, $"line too long: {l}"));
-        Assert.Contains("fine-grained", text.Replace("<br/>", " "));
-    }
+// Found on a real Emby server: a caption shows one line, so the long "classic token" warning was cut off.    [Fact]    public async Task TestToken_ALongResultIsKeptWhole_InAListItem_NotACaption()    {        using var env = new TestEnv();        env.Handler.OnJson("/rate_limit", "{}", HttpStatusCode.OK, r =>        {            r.Headers.Add("X-RateLimit-Limit", "5000");            r.Headers.Add("X-RateLimit-Remaining", "4999");            r.Headers.Add("X-RateLimit-Reset", DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds().ToString());            r.Headers.Add("X-OAuth-Scopes", "repo");        });        var view = OpenPage(env);        await Press(view, "TestToken");        var text = Assert.Single(view.PluginUiOptions.TokenStatus).PrimaryText;        Assert.Contains("fine-grained", text);        Assert.DoesNotContain("<br/>", text);    }
 
     [Fact]
     public async Task AFailedUpdate_KeepsTheCaptionShort_AndLeavesTheReasonToTheCard()

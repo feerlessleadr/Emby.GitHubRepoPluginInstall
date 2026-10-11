@@ -74,7 +74,7 @@ public class StatusListsTests
     {
         var item = Assert.Single(StatusLists.BuildSummary(null, new RunProgressInfo(), true));
 
-        Assert.Equal("No runs yet", item.PrimaryText);
+        Assert.StartsWith("No runs yet", item.PrimaryText);
         Assert.Equal("RunNow", item.Button1.Data1);
         Assert.Equal("CheckAll", item.Button2.Data1);
     }
@@ -253,7 +253,8 @@ public class StatusListsTests
             // HTML: the only tags allowed are the ones this code adds itself
             if (i.PrimaryText != null)
             {
-                var withoutOurTags = i.PrimaryText.Replace("<br/>", "").Replace("<b>", "").Replace("</b>", "");
+                // the page stylesheet is the one block of markup that is meant to be there; everything else is checked
+                var withoutOurTags = i.PrimaryText.Replace(StatusLists.PageStyle, "").Replace("<br/>", "").Replace("<b>", "").Replace("</b>", "");
                 Assert.DoesNotContain("<", withoutOurTags);
                 Assert.DoesNotContain("\"", withoutOurTags);
             }
@@ -316,62 +317,104 @@ public class StatusListsTests
         Assert.Equal(ItemStatus.Succeeded, list[1].Status);
     }
 
-    // ---- Wrapping long text (Emby cuts each line off with "..." instead of wrapping it) ------------------------
+    // ---- The page stylesheet: full width, and text that wraps instead of being cut off -----------------------------
 
-    [Fact]
-    public void WrapHtml_BreaksAtWordBoundaries_WithoutLosingOrSplittingWords()
+    // Found on a real server: Emby limits plugin pages to 80 characters wide, so on a big screen the page used about
+    // a third of the window, and every list line was cut off with "...".
+    [Theory]
+    [InlineData("none")]
+    [InlineData("last")]
+    [InlineData("running")]
+    public void TheSummaryCard_AlwaysCarriesThePageStylesheet(string state)
     {
-        var text = "GitHub's request limit was reached. It resets at 14:05. Adding a token raises the limit from 60 to 5,000 requests per hour.";
+        var last = state == "last" ? Run(RepoOutcome.UpToDate) : null;
+        var progress = state == "running"
+            ? new RunProgressInfo { IsRunning = true, Total = 2, Trigger = "Manual", StartedUtc = DateTime.UtcNow }
+            : new RunProgressInfo();
 
-        var html  = StatusLists.WrapHtml(text, 40);
-        var lines = html.Split(new[] { "<br/>" }, StringSplitOptions.None);
+        var item = Assert.Single(StatusLists.BuildSummary(last, progress, true));
 
-        Assert.True(lines.Length > 1);
-        Assert.All(lines, l => Assert.True(System.Net.WebUtility.HtmlDecode(l).Length <= 40, $"line too long: {l}"));
-        Assert.Equal(text, System.Net.WebUtility.HtmlDecode(string.Join(" ", lines)));
+        Assert.EndsWith(StatusLists.PageStyle, item.PrimaryText);
+        Assert.Contains("<style>", item.PrimaryText);
     }
 
     [Fact]
-    public void WrapHtml_ShortTextStaysOnOneLine()
+    public void ThePageStylesheet_LiftsTheWidthLimit_AndLetsTextWrap()
     {
-        Assert.Equal("Up to date", StatusLists.WrapHtml("Up to date"));
-        Assert.Equal("", StatusLists.WrapHtml(null));
-        Assert.Equal("", StatusLists.WrapHtml("   "));
+        var css = StatusLists.PageStyle;
+
+        Assert.Contains("max-width:none!important", css);
+        Assert.Contains("white-space:normal!important", css);
+        Assert.Contains(".listItemBodyText-nowrap", css);
+    }
+
+    // Found on a phone-sized window: letting text wrap squeezed the text column to a sliver beside the buttons.
+    [Fact]
+    public void ThePageStylesheet_LetsCardRowsWrap_SoButtonsDropBelowTheTextOnAPhone()
+    {
+        var css = StatusLists.PageStyle;
+
+        Assert.Contains(".ge-itemlist-listitem-listitemcontent{flex-wrap:wrap}", css);
+        Assert.Contains("min-width:11em", css);
     }
 
     [Fact]
-    public void WrapHtml_AWordLongerThanTheWidthIsNotSplit_AndStillEncoded()
+    public void ThePageStylesheet_IsWellFormed()
     {
-        var html = StatusLists.WrapHtml("see https://example.com/a/very/long/path?x=1&y=2 now", 10);
+        var css = StatusLists.PageStyle;
+        var sheet = System.Text.RegularExpressions.Regex.Match(css, "<style>(.*?)</style>").Groups[1].Value;
 
-        Assert.Contains("https://example.com/a/very/long/path?x=1&amp;y=2", html);
+        Assert.Equal(sheet.Count(c => c == '{'), sheet.Count(c => c == '}'));
+        Assert.DoesNotContain("<", sheet);
+        Assert.DoesNotContain("\n", css);
+    }
+
+    // Both rules must only match something that contains the marker, or they would change every other settings
+    // page too. Every selector is checked, not just the first.
+    [Fact]
+    public void ThePageStylesheet_OnlyAffectsThisPage()
+    {
+        var css = StatusLists.PageStyle;
+        var sheet = System.Text.RegularExpressions.Regex.Match(css, "<style>(.*?)</style>").Groups[1].Value;
+        var rules = System.Text.RegularExpressions.Regex.Matches(sheet, @"([^{}]+)\{[^}]*\}");
+        Assert.True(rules.Count >= 4, "expected the width, wrapping and two phone-layout rules");
+
+        foreach (System.Text.RegularExpressions.Match rule in rules)
+            foreach (var selector in rule.Groups[1].Value.Split(','))
+                Assert.Contains(":has(." + StatusLists.PageMarkerClass + ")", selector);
+
+        // the marker the rules look for really is on the page
+        Assert.Contains("class=\"" + StatusLists.PageMarkerClass + "\"", css);
     }
 
     [Fact]
-    public void AFailureReason_ReadsInFullInsteadOfBeingCutOff()
+    public void LongText_IsLeftWhole_ForTheBrowserToWrap()
     {
         var reason = "GitHub's request limit was reached. It resets at 14:05. Adding a token raises the limit from 60 to 5,000 requests per hour.";
         var item = Assert.Single(StatusLists.BuildPlugins(new[] { Repo("broken", error: reason) }));
 
         var note = item.SubItems[0].PrimaryText;   // the reason comes first, above the auto-update row
 
-        Assert.Contains("<br/>", note);   // it is spread over several lines
-        Assert.Equal(reason, System.Net.WebUtility.HtmlDecode(Flat(note)));
+        Assert.DoesNotContain("<br/>", note);
+        Assert.Equal(reason, System.Net.WebUtility.HtmlDecode(note));
     }
 
     [Fact]
-    public void ReleaseNotes_KeepTheirOwnLines_AndWrapTheLongOnes()
+    public void ReleaseNotes_KeepTheirOwnLines_AndAreNotReWrapped()
     {
-        var repo = Repo("n", "2", "1");
-        repo.LatestNotes = "- short bullet\n\n- " + new string('x', 5) + " " + string.Join(" ", Enumerable.Repeat("longword", 20));
+        var long1 = string.Join(" ", Enumerable.Repeat("longword", 30));
 
-        var html = StatusLists.NotesHtml(repo.LatestNotes);
+        var html = StatusLists.NotesHtml("- short bullet\r\n\r\n- " + long1);
         var lines = html.Split(new[] { "<br/>" }, StringSplitOptions.None);
 
-        Assert.Equal("- short bullet", lines[0]);
-        Assert.Equal("", lines[1]);                       // blank line between paragraphs kept
-        Assert.All(lines, l => Assert.True(l.Length <= 70));
-        Assert.True(lines.Length > 3);                    // the long bullet was wrapped
+        Assert.Equal(new[] { "- short bullet", "", "- " + long1 }, lines);
+    }
+
+    [Fact]
+    public void Encode_MakesTextSafeForPrimaryText()
+    {
+        Assert.Equal("a &lt;b&gt; &amp; c", StatusLists.Encode("a <b> & c"));
+        Assert.Equal("", StatusLists.Encode(null));
     }
 
     [Fact]

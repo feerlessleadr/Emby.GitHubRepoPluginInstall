@@ -127,6 +127,57 @@ public class RepoUpdateServiceTests
         Assert.Contains("Cool.Plugin.dll", repo.GetLatestAssetNames());
     }
 
+    // ---- Release notes ----------------------------------------------------------------------------------------
+
+    [Fact]
+    public void Notes_UpToTheLimit_AreKeptWhole()
+    {
+        var notes = string.Join("\n", Enumerable.Range(1, 40).Select(i => $"- bullet number {i} with some words"));
+
+        Assert.True(notes.Length < RepoUpdateService.MaxStoredNotes);
+        Assert.Equal(notes, RepoUpdateService.TrimNotes(notes));
+    }
+
+    // Found on a real server: notes of about 800 characters were cut mid-word at 600.
+    [Fact]
+    public void Notes_AboutEightHundredCharacters_AreNoLongerCut()
+    {
+        var notes = string.Join("\n", Enumerable.Range(1, 22).Select(i => $"- line {i}: " + new string('x', 25)));
+
+        Assert.InRange(notes.Length, 700, 900);
+        Assert.Equal(notes, RepoUpdateService.TrimNotes(notes));
+    }
+
+    [Fact]
+    public void Notes_OverTheLimit_AreCutAtTheEndOfALine()
+    {
+        var notes = string.Join("\n", Enumerable.Range(1, 200).Select(i => $"- bullet number {i} with some words"));
+
+        var trimmed = RepoUpdateService.TrimNotes(notes);
+
+        Assert.True(trimmed.Length <= RepoUpdateService.MaxStoredNotes + 2);
+        Assert.EndsWith("\n…", trimmed);
+        var lastKept = trimmed.Substring(0, trimmed.Length - 2).Split('\n').Last();
+        Assert.Matches(@"^- bullet number \d+ with some words$", lastKept);   // a whole line, not half of one
+    }
+
+    [Fact]
+    public void Notes_OverTheLimit_WithNoLineBreaks_AreCutAtTheLimit()
+    {
+        var trimmed = RepoUpdateService.TrimNotes(new string('a', 5000));
+
+        Assert.Equal(RepoUpdateService.MaxStoredNotes + 2, trimmed.Length);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   \n  ")]
+    public void NoNotes_AreStoredAsNull(string notes)
+    {
+        Assert.Null(RepoUpdateService.TrimNotes(notes));
+    }
+
     // ---- Restart behaviour ------------------------------------------------------------------------------------
 
     [Fact]

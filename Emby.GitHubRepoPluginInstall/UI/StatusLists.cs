@@ -15,10 +15,13 @@ namespace Emby.GitHubRepoPluginInstall.UI;
 /// so opening the page is instant and never uses up API requests.
 ///
 /// How Emby draws a list item decides where text goes:
-///  - PrimaryText is HTML and wraps. Anything that came from outside (release notes, error text, names) is encoded first.
+///  - PrimaryText is HTML. Anything that came from outside (release notes, error text, names) is encoded first.
 ///  - SecondaryText is plain text on a single line that is cut off with "..." when it is too long. It must stay short
 ///    and must not be encoded or contain markup, or the markup shows up on screen.
 ///  - SubItems appear under the card and use the same rules, so longer text goes there as PrimaryText.
+///
+/// Emby also limits plugin pages to 80 characters wide and cuts every list line off with "...". Neither can be changed
+/// from C#, so the page carries a small stylesheet (<see cref="PageStyle"/>) that lifts both limits for this page only.
 /// </summary>
 internal static class StatusLists
 {
@@ -26,42 +29,38 @@ internal static class StatusLists
 
     private static string H(string text) => HttpUtility.HtmlEncode(text ?? string.Empty);
 
-    public const int WrapWidth = 60;
+    /// <summary>Encodes text for use in PrimaryText.</summary>
+    public static string Encode(string text) => H(text);
+
+    /// <summary>The class on the marker element that scopes the page stylesheet to this page.</summary>
+    public const string PageMarkerClass = "ghrpi-page";
 
     /// <summary>
-    /// Emby shows each line of list text on one line and cuts it off with "...", so long text only reads in full
-    /// when it is broken into lines of its own. Breaks at word boundaries, encodes each line, and joins them with
-    /// the line break Emby understands.
+    /// Added to the summary card's text, since list text is the one place a plugin can put its own markup.
+    ///  - Emby's "form { max-width: 80ch }" is lifted so the page uses the whole width of the window.
+    ///  - List text wraps instead of being cut off with "...", so long text reads in full at any width.
+    ///  - A card's row can wrap, and its text column keeps a minimum width, so on a phone the buttons and switches
+    ///    drop below the text instead of squeezing it into a sliver.
+    /// Every rule only matches something that contains the marker, so they apply to this page only. The stylesheet is
+    /// removed with the page, so nothing leaks into other settings pages. A browser too old to understand :has() ignores
+    /// the rules, and the page keeps Emby's own narrow layout.
     /// </summary>
-    public static string WrapHtml(string text, int width = WrapWidth)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+    public static readonly string PageStyle =
+        "<span class=\"" + PageMarkerClass + "\"></span><style>" +
+        "form:has(." + PageMarkerClass + "),.readOnlyContent:has(." + PageMarkerClass + "){max-width:none!important}" +
+        ".readOnlyContent:has(." + PageMarkerClass + ") .listItemBodyText-nowrap" +
+        "{white-space:normal!important;overflow:visible!important;text-overflow:clip!important}" +
+        ".readOnlyContent:has(." + PageMarkerClass + ") .ge-itemlist-listitem-listitemcontent{flex-wrap:wrap}" +
+        ".readOnlyContent:has(." + PageMarkerClass + ") .ge-itemlist-listitem-listitemcontent>.listItemBody" +
+        "{flex:1 1 11em;min-width:11em}" +
+        "</style>";
 
-        var lines   = new List<string>();
-        var current = new System.Text.StringBuilder();
-
-        foreach (var word in text.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (current.Length > 0 && current.Length + 1 + word.Length > width)
-            {
-                lines.Add(current.ToString());
-                current.Clear();
-            }
-
-            if (current.Length > 0) current.Append(' ');
-            current.Append(word);
-        }
-
-        if (current.Length > 0) lines.Add(current.ToString());
-        return string.Join("<br/>", lines.Select(H));
-    }
-
-    /// <summary>A line of detail under a card. Long text is wrapped so none of it is cut off.</summary>
+    /// <summary>A line of detail under a card.</summary>
     private static GenericListItem Note(string text, IconNames? icon = null)
     {
         return new GenericListItem
                {
-                   PrimaryText = WrapHtml(text),
+                   PrimaryText = H(text),
                    Icon        = icon,
                    IconMode    = icon == null ? ItemListIconMode.NoIcons : ItemListIconMode.LargeRegular
                };
@@ -153,6 +152,10 @@ internal static class StatusLists
         }
 
         item.SubItems = NotesOrNull(notes);
+
+        // This card is always on the page, so it carries the page stylesheet (see PageStyle)
+        item.PrimaryText += PageStyle;
+
         list.Add(item);
         return list;
     }
@@ -393,9 +396,9 @@ internal static class StatusLists
 
     public static string NotesHtml(string notes)
     {
-        // each line the author wrote is wrapped on its own, so paragraphs and bullet lists keep their shape
+        // each line the author wrote stays a line, so paragraphs and bullet lists keep their shape
         var lines = notes.Replace("\r\n", "\n").Split('\n');
-        return string.Join("<br/>", lines.Select(l => string.IsNullOrWhiteSpace(l) ? "" : WrapHtml(l, 70)));
+        return string.Join("<br/>", lines.Select(l => string.IsNullOrWhiteSpace(l) ? "" : H(l)));
     }
 
     public static GenericItemList BuildHistory(IEnumerable<RunRecord> runs)
@@ -419,7 +422,7 @@ internal static class StatusLists
                 // The result text can be long (an error reason), so it is the wrapping first line, with the plugin name leading it
                 item.SubItems.Add(new GenericListItem
                                   {
-                                      PrimaryText = $"<b>{H(result.Name)}</b><br/>{WrapHtml(ResultText(result))}",
+                                      PrimaryText = $"<b>{H(result.Name)}</b><br/>{H(ResultText(result))}",
                                       Status      = ResultStatus(result),
                                       IconMode    = ItemListIconMode.NoIcons
                                   });

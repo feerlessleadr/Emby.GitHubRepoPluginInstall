@@ -368,12 +368,23 @@ public class RepoUpdateService
     }
 
 
-    private static string TrimNotes(string notes)
+    public const int MaxStoredNotes = 2000;
+
+    /// <summary>
+    /// Release notes are kept so the page can show them without calling GitHub. Very long ones are cut, at the end of a
+    /// line where there is one, so the last bullet isn't left half-finished.
+    /// </summary>
+    internal static string TrimNotes(string notes)
     {
         if (string.IsNullOrWhiteSpace(notes)) return null;
 
         notes = notes.Trim();
-        return notes.Length <= 600 ? notes : notes.Substring(0, 600).TrimEnd() + "…";
+        if (notes.Length <= MaxStoredNotes) return notes;
+
+        var window = notes.Substring(0, MaxStoredNotes);
+        var lastBreak = window.LastIndexOf('\n');
+        var kept = lastBreak > MaxStoredNotes / 2 ? window.Substring(0, lastBreak) : window;
+        return kept.TrimEnd() + "\n…";
     }
 
     /// <summary>A sentence the user can act on, instead of an HTTP status code.</summary>

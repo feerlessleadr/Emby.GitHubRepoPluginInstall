@@ -198,14 +198,14 @@ internal class MainPageView : PluginPageView
         return this;
     }
 
-    // The message can be long, and a caption would cut it off, so it goes in a list item that wraps
+    // The message can be long, and a caption would cut it off, so it goes in a list item
     private void ShowTokenResult(bool ok, string message)
     {
         PluginUiOptions.TokenStatus = new GenericItemList
                                       {
                                           new GenericListItem
                                           {
-                                              PrimaryText = StatusLists.WrapHtml(message),
+                                              PrimaryText = StatusLists.Encode(message),
                                               Status      = ok ? ItemStatus.Succeeded : ItemStatus.Failed,
                                               Icon        = ok ? IconNames.check_circle_outline : IconNames.error_outline,
                                               IconMode    = ItemListIconMode.LargeRegular
