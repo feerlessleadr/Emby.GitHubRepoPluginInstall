@@ -146,6 +146,17 @@ public class PluginUIOptions : EditableOptionsBase
                  "Updates you start from this page never restart the server on their own.")]
     public bool RestartServerAfterInstall { get; set; }
 
+    [DisplayName("Allow the phone app to control this plugin")]
+    [Description("Off by default. Lets an administrator's app (such as Embidextrous) check for updates, install, " +
+                 "restore and restart through Emby's web server, using the administrator's own Emby token.")]
+    public bool ApiEnabled { get; set; }
+
+    [DisplayName("...and to add and remove plugins")]
+    [Description("Off by default. Adding a plugin installs someone else's code on your server, so this is a separate switch. " +
+                 "It only has an effect while the setting above is on.")]
+    [VisibleCondition(nameof(ApiEnabled), SimpleCondition.IsTrue)]
+    public bool ApiAllowManage { get; set; }
+
     /// <summary>True once the installer's own repository has been offered for self-update (it is added once, never re-added after removal).</summary>
     [Browsable(false)]
     public bool SelfEntryHandled { get; set; }

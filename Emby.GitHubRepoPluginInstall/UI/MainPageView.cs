@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -60,6 +60,9 @@ internal class MainPageView : PluginPageView
     public PluginUIOptions PluginUiOptions => ContentData as PluginUIOptions;
 
     private RuntimeStateStore StateStore => new RuntimeStateStore(_appHost, _logger, GitHubRepPluginInstall.PluginName);
+
+    private PluginManagementService Manage =>
+        new PluginManagementService(_appHost, _logger, () => PluginUiOptions, SaveOptions, SyncFromStore, _clientFactory);
 
     private RepoUpdateService UpdateService => new RepoUpdateService(_appHost, _logger, _clientFactory);
 
@@ -421,69 +424,26 @@ internal class MainPageView : PluginPageView
     private IPluginUIView ToggleAutoUpdate(string repoId)
     {
         SyncFromStore();
-        var repo = RepoById(repoId);
-        if (repo == null)
-        {
-            Say("Could not find that plugin. Refresh the page and try again.");
-            return this;
-        }
-
-        repo.AutoUpdate = !repo.AutoUpdate;
-        SaveOptions();
-        Say($"Auto-update is now {(repo.AutoUpdate ? "on" : "off")} for {repo.Repository}.");
-        RefreshView();
+        var result = Manage.SetAutoUpdate(repoId);
+        Say(result.Outcome == ManageOutcome.NotFound ? PluginNotFound : result.Message);
+        if (result.Ok) RefreshView();
         return this;
     }
 
+    private const string PluginNotFound = "Could not find that plugin. Refresh the page and try again.";
+
     private IPluginUIView RemoveRepo(string repoId)
     {
-        try
+        SyncFromStore();
+        var result = Manage.RemoveRepo(repoId);
+
+        if (result.Outcome == ManageOutcome.NotFound)
         {
-            SyncFromStore();
-            var item = RepoById(repoId);
-            if (item == null)
-            {
-                Say("Could not find that plugin. Refresh the page and try again.");
-                return this;
-            }
-
-            var fileDeleted = false;
-            var applicationPaths = _appHost.Resolve<IApplicationPaths>();
-
-            if (!string.IsNullOrEmpty(item.FileName))
-            {
-                var fullPath = Path.Combine(applicationPaths.PluginsPath, item.FileName);
-                if (File.Exists(fullPath))
-                {
-                    File.Delete(fullPath);
-                    fileDeleted = true;
-                    _logger.Info($"Deleted plugin file: {fullPath}");
-                }
-            }
-
-            PluginUiOptions.Repos.Remove(item);
-
-            // Only trigger restart if we actually deleted a plugin file
-            if (fileDeleted)
-            {
-                _appHost.NotifyPendingRestart();
-                PluginUiOptions.RepoLogs = new CaptionItem($"Removed {item.Repository} and deleted its file. Restart Emby to finish.") { IsVisible = true };
-            }
-            else
-            {
-                PluginUiOptions.RepoLogs = new CaptionItem($"Removed {item.Repository} from the list.") { IsVisible = true };
-            }
-        }
-        catch (Exception exception)
-        {
-            _logger.ErrorException("Error during repository removal", exception);
-            PluginUiOptions.RepoLogs = new CaptionItem($"Could not remove the plugin: {Brief(exception.Message)}") { IsVisible = true };
+            Say(PluginNotFound);
+            return this;
         }
 
-        if (PluginUiOptions.Repos == null)
-            PluginUiOptions.Repos = new List<ReposToProcess>();
-
-        SaveOptions();
+        PluginUiOptions.RepoLogs = new CaptionItem(result.Message) { IsVisible = true };
         RefreshView();
         return this;
     }
@@ -493,60 +453,17 @@ internal class MainPageView : PluginPageView
         // Start from what the latest run recorded, since this edits version fields
         SyncFromStore();
 
-        var repo = RepoById(repoId);
-        if (repo == null)
+        var result = await Manage.RestoreAsync(repoId);
+
+        if (result.Outcome == ManageOutcome.NotFound)
         {
-            Say("Could not find that plugin. Refresh the page and try again.");
+            Say(PluginNotFound);
             return this;
         }
 
-        if (string.IsNullOrEmpty(repo.FileName))
-        {
-            PluginUiOptions.RepoLogs = new CaptionItem($"Nothing to restore: no installed file is recorded for {repo.Repository}.") { IsVisible = true };
-            return this;
-        }
-
-        try
-        {
-            var backups = new PluginBackupService(_appHost, _logger);
-            var backup  = await backups.RestoreBackupAsync(repo.FileName);
-
-            if (backup == null)
-            {
-                PluginUiOptions.RepoLogs = new CaptionItem($"No backup of {repo.Repository} yet. One is made whenever it is updated.") { IsVisible = true };
-                return this;
-            }
-
-            var from = repo.LastVersionDownloaded;
-            repo.LastVersionDownloaded = backup.Version == "unknown" ? null : backup.Version;
-            repo.AutoUpdate            = false;
-            repo.LastError             = null;
-
-            // If the restored file matches what is still running (restoring right after an update, before a restart),
-            // no restart is needed and nothing stays pending.
-            var state = StateStore;
-            state.AddPendingRestart(new PendingRestartItem
-                                    {
-                                        Name        = repo.Repository,
-                                        FromVersion = from,
-                                        ToVersion   = backup.Version,
-                                        FileName    = repo.FileName
-                                    });
-            if (state.Load().PendingRestart.Count > 0)
-                _appHost.NotifyPendingRestart();
-
-            SaveOptions();
-            // The banner above says whether a restart is needed; this line only needs to say what happened
-            var which = backup.Version == "unknown" ? "the previous version of" : backup.Version + " of";
-            PluginUiOptions.RepoLogs = new CaptionItem($"Restored {which} {repo.Repository}. Auto-update is now off for it.") { IsVisible = true };
-        }
-        catch (Exception ex)
-        {
-            _logger.ErrorException($"Restore failed for {repo.Repository}", ex);
-            PluginUiOptions.RepoLogs = new CaptionItem($"Could not restore {repo.Repository}: {Brief(ex.Message)}") { IsVisible = true };
-        }
-
-        RefreshView();
+        PluginUiOptions.RepoLogs = new CaptionItem(result.Message) { IsVisible = true };
+        if (result.Outcome != ManageOutcome.Refused)
+            RefreshView();
         return this;
     }
 
@@ -554,20 +471,11 @@ internal class MainPageView : PluginPageView
 
     private IPluginUIView ToggleRegistry(string registryId)
     {
-        var registry = PluginUiOptions.PluginRegistries.Find(x => x.Id == registryId);
-        if (registry == null)
-        {
-            Say("Could not find that registry. Refresh the page and try again.");
-            return this;
-        }
-
-        registry.Enabled = !registry.Enabled;
-        SaveOptions();
-        Say($"{registry.Name} is now {(registry.Enabled ? "on" : "off")}.");
-        RefreshView();
+        var result = Manage.ToggleRegistry(registryId);
+        Say(result.Outcome == ManageOutcome.NotFound ? "Could not find that registry. Refresh the page and try again." : result.Message);
+        if (result.Ok) RefreshView();
         return this;
     }
-
     private IPluginUIView EditRegistry(string registryId)
     {
         try
@@ -591,32 +499,13 @@ internal class MainPageView : PluginPageView
 
     private IPluginUIView RemoveRegistry(string registryId)
     {
-        try
-        {
-            var registry = PluginUiOptions.PluginRegistries.Find(x => x.Id == registryId);
-            if (registry != null && registry.Id != "embedded-default")
-            {
-                PluginUiOptions.PluginRegistries.Remove(registry);
-                PluginUiOptions.RegistryLogs = new CaptionItem($"Removed registry: {registry.Name}") { IsVisible = true };
-                SaveOptions();
-                RefreshView();
-            }
-            else
-            {
-                PluginUiOptions.RegistryLogs = new CaptionItem(registry?.Id == "embedded-default"
-                                                                   ? "The built-in registry can't be removed."
-                                                                   : "Could not find the selected registry.") { IsVisible = true };
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Error removing registry: {ex.Message}");
-            PluginUiOptions.RegistryLogs = new CaptionItem($"Could not remove the registry: {Brief(ex.Message)}") { IsVisible = true };
-        }
-
+        var result = Manage.RemoveRegistry(registryId);
+        PluginUiOptions.RegistryLogs = new CaptionItem(result.Outcome == ManageOutcome.NotFound
+                                                           ? "Could not find the selected registry."
+                                                           : result.Message) { IsVisible = true };
+        if (result.Ok) RefreshView();
         return this;
     }
-
     // ---- Dialog results ---------------------------------------------------------------------------------------
 
     public override void OnDialogResult(IPluginUIView dialogView, bool completedOk, object data)
@@ -629,31 +518,13 @@ internal class MainPageView : PluginPageView
 
             if (dialogView is RegistryConfigDialogView registryDialog && completedOk)
             {
-                var newRegistry = new PluginRegistry
-                {
-                    Id = registryDialog.RegistryConfigUi.Id ?? Guid.NewGuid().ToString(),
-                    Name = registryDialog.RegistryConfigUi.Name,
-                    RawUrl = registryDialog.RegistryConfigUi.RawUrl,
-                    Enabled = registryDialog.RegistryConfigUi.Enabled
-                };
-
-                if (PluginUiOptions.PluginRegistries == null)
-                    PluginUiOptions.PluginRegistries = new List<PluginRegistry>();
-
-                // Check if editing existing
-                var existing = PluginUiOptions.PluginRegistries.FirstOrDefault(r => r.Id == newRegistry.Id);
-                if (existing != null)
-                {
-                    existing.Name = newRegistry.Name;
-                    existing.RawUrl = newRegistry.RawUrl;
-                    existing.Enabled = newRegistry.Enabled;
-                }
-                else
-                {
-                    PluginUiOptions.PluginRegistries.Add(newRegistry);
-                }
-
-                SaveOptions();
+                Manage.UpsertRegistry(new RegistrySettings
+                                      {
+                                          Id      = registryDialog.RegistryConfigUi.Id,
+                                          Name    = registryDialog.RegistryConfigUi.Name,
+                                          RawUrl  = registryDialog.RegistryConfigUi.RawUrl,
+                                          Enabled = registryDialog.RegistryConfigUi.Enabled
+                                      });                SaveOptions();
                 RefreshView();
                 RaiseUIViewInfoChanged();
             }
@@ -671,78 +542,21 @@ internal class MainPageView : PluginPageView
     {
         var ui = dialog.RepoConfigUi;
 
-        // Accepts owner/repo, ssh addresses, .git suffixes and /releases links, and stores one canonical form
-        var validation = GitHubUrlValidator.ValidateUrl(ui.Url);
-        if (!validation.IsValid)
-        {
-            PluginUiOptions.RepoLogs = new CaptionItem("Not saved. Use an address like owner/repository or https://github.com/owner/repository.") { IsVisible = true };
-            return;
-        }
+        var result = Manage.ApplyRepoAsync(new RepoSettings
+                                           {
+                                               Id              = ui.Id,
+                                               Url             = ui.Url,
+                                               AllowPreRelease = ui.AllowPreReleaseVersions,
+                                               AutoUpdate      = ui.AutoUpdate,
+                                               AssetNameFilter = ui.AssetNameFilter
+                                           }).GetAwaiter().GetResult();
 
-        var url = validation.CorrectedUrl ?? ui.Url;
-        var key = GitHubApiClient.RegistryKey(url);
+        PluginUiOptions.RepoLogs = new CaptionItem(result.Message) { IsVisible = true };
+        if (!result.Ok) return;
 
-        bool IsDuplicate(string currentId) =>
-            PluginUiOptions.Repos?.Any(x => x.RepoKey == key && x.Id != currentId) ?? false;
-
-        ReposToProcess saved;
-
-        if (!string.IsNullOrEmpty(ui.Id))
-        {
-            // Editing existing entry
-            saved = PluginUiOptions.Repos.Find(x => x.Id == ui.Id);
-            if (saved == null) return;
-
-            if (IsDuplicate(saved.Id))
-            {
-                PluginUiOptions.RepoLogs = new CaptionItem($"{url} is already in the list.") { IsVisible = true };
-                return;
-            }
-
-            saved.Url             = url;
-            saved.GetPreRelease   = ui.AllowPreReleaseVersions;
-            saved.AutoUpdate      = ui.AutoUpdate;
-            saved.AssetNameFilter = ui.AssetNameFilter ?? "";
-        }
-        else
-        {
-            if (IsDuplicate(null))
-            {
-                PluginUiOptions.RepoLogs = new CaptionItem($"{url} is already in the list.") { IsVisible = true };
-                return;
-            }
-
-            saved = new ReposToProcess
-                    {
-                        Url             = url,
-                        GetPreRelease   = ui.AllowPreReleaseVersions,
-                        AutoUpdate      = ui.AutoUpdate,
-                        AssetNameFilter = ui.AssetNameFilter ?? ""
-                    };
-
-            if (PluginUiOptions.Repos == null)
-                PluginUiOptions.Repos = new List<ReposToProcess>();
-            PluginUiOptions.Repos.Add(saved);
-        }
-
-        SaveOptions();
-
-        // Look the repository up straight away so its card shows a real status (or the reason it can't be reached)
-        try
-        {
-            UpdateService.RunAsync(RepoUpdateService.TriggerManual, RunMode.CheckOnly, saved.Id).GetAwaiter().GetResult();
-            SyncFromStore();
-        }
-        catch (Exception ex)
-        {
-            _logger.Debug($"Initial check of {url} was skipped: {ex.Message}");
-        }
-
-        PluginUiOptions.RepoLogs = new CaptionItem(validation.Message ?? $"Saved {saved.Repository}.") { IsVisible = true };
         RefreshView();
         RaiseUIViewInfoChanged();
     }
-
     // ---- Shared helpers ---------------------------------------------------------------------------------------
 
     // Emby shows a caption on one line and cuts it off, so messages that end in an error from elsewhere are shortened
