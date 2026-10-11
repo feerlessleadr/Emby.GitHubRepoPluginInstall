@@ -17,7 +17,7 @@ The top of the page tells you what needs attention before anything else.
   - The **Update automatically** switch under the card turns auto-update on or off for that plugin.
   - The **⋯** menu has **Edit settings**, **Restore previous version** and **Remove**.
   - Release notes sit underneath.
-  - **Update N plugins**, above the cards, appears only while at least one plugin shows an update. It installs just those plugins, including ones with auto-update off, and leaves the rest alone. It asks first and names them.
+  - **Update N plugins**, the last of three buttons in a row above the cards (after **Add Plugin** and **Update Everything Now**), appears only while at least one plugin shows an update. It installs just those plugins, including ones with auto-update off, and leaves the rest alone. It asks first and names them.
 - **Run history** keeps the last 10 runs with the result for each plugin. The Emby activity log gets one summary entry per run, plus an entry for each plugin that was installed or failed. Plugins that were already up to date no longer add an entry each.
 
 Opening the page never contacts GitHub. It shows what the last check found, so it opens instantly and doesn't use up your request allowance.
@@ -42,7 +42,7 @@ A classic token with the `repo` scope also works, but it can read all of your pr
 
 ### Adding repositories
 
-1. Click **Add Plugin**, under the plugin cards.
+1. Click **Add Plugin**, in the row of buttons above the plugin cards.
 2. Pick a plugin from the registry list, or type the repository. All of these work: `owner/repository`, `https://github.com/owner/repository`, a `.git` address, or a link to the releases page. The address is saved in one standard form.
 3. **Auto Update** installs new releases during the daily run. With it off, the plugin still checks the repository and shows the update, and you install it with the **Update** button.
 4. **Allow PreRelease Versions** includes releases marked as pre-releases.
@@ -58,7 +58,7 @@ The first time the page is opened, this repository is added to your list so the 
 
 - **Daily task** (Scheduled Tasks, "Update Plugins From Github Repos") installs updates for repositories with Auto Update on and checks the rest.
 - **Restart behavior.** The daily task never restarts Emby unless you turn on *Restart Emby automatically after scheduled updates*. Updates you start from the page never restart the server on their own. Either way the **Restart needed** banner shows what changed.
-- **Update Everything Now** (under the cards) checks every repository on GitHub again and installs the newest release of each, including ones with Auto Update off and ones that have not been checked yet. To update only the plugins that already show an update, use **Update N plugins** above the cards.
+- **Update Everything Now** (above the cards) checks every repository on GitHub again and installs the newest release of each, including ones with Auto Update off and ones that have not been checked yet. To update only the plugins that already show an update, use **Update N plugins**, the last button in that row.
 
 ### Backups and rollback
 

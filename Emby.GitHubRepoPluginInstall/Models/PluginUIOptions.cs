@@ -50,22 +50,7 @@ public class PluginUIOptions : EditableOptionsBase
     [DontSave]
     public CaptionItem CaptionLatestReleases { get; set; } = new CaptionItem("Plugins");
 
-    /// <summary>
-    /// Sits above the plugin cards and is only visible while at least one plugin has an update. It installs those
-    /// plugins and nothing else. The caption and the confirmation text are filled in when the page is built.
-    /// </summary>
-    [DontSave]
-    public ButtonItem UpdateAvailableBtn { get; set; } = new ButtonItem
-                                                         {
-                                                             Caption   = "Update plugins with updates",
-                                                             Data1     = "UpdateAvailable",
-                                                             Icon      = IconNames.system_update_alt,
-                                                             IsVisible = false
-                                                         };
-
-    [DisplayName("Status of each plugin")]
-    [DontSave]
-    public GenericItemList Releases { get; set; } = new GenericItemList();
+    // The three buttons below sit in one row above the cards, in this order. The last one only shows when needed.
 
     [DontSave]
     public ButtonItem Add =>
@@ -86,11 +71,29 @@ public class PluginUIOptions : EditableOptionsBase
             ConfirmationPrompt = "Install the newest release of every plugin in the list, including ones with auto-update turned off?"
         };
 
+    /// <summary>
+    /// The end of the button row. Only visible while at least one plugin has an update, and it installs those plugins
+    /// and nothing else. The caption and the confirmation text are filled in when the page is built.
+    /// </summary>
+    [DontSave]
+    public ButtonItem UpdateAvailableBtn { get; set; } = new ButtonItem
+                                                         {
+                                                             Caption   = "Update plugins with updates",
+                                                             Data1     = "UpdateAvailable",
+                                                             Icon      = IconNames.system_update_alt,
+                                                             IsVisible = false
+                                                         };
+
+    /// <summary>Messages about adding, removing, editing and restoring plugins, right under the buttons.</summary>
     [DontSave]
     public CaptionItem RepoLogs { get; set; } = new CaptionItem("")
                                                {
                                                    IsVisible = false
                                                };
+
+    [DisplayName("Status of each plugin")]
+    [DontSave]
+    public GenericItemList Releases { get; set; } = new GenericItemList();
 
     [Browsable(false)]
     public List<ReposToProcess> Repos { get; set; } = new List<ReposToProcess>();

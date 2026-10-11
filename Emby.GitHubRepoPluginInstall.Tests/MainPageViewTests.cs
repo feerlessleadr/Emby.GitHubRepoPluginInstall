@@ -148,6 +148,26 @@ public class MainPageViewTests
         Assert.Empty(o.RunHistory);
     }
 
+    // The page is drawn in the order the properties are declared, so this is what puts the three buttons in one row
+    // above the cards, with the "Update N plugins" button last.
+    [Fact]
+    public void ThePluginButtons_SitAboveTheCards_InOneRow_WithTheConditionalOneLast()
+    {
+        int Position(string name) => typeof(PluginUIOptions).GetProperty(name)!.MetadataToken;
+
+        var order = new[]
+        {
+            nameof(PluginUIOptions.CaptionLatestReleases),
+            nameof(PluginUIOptions.Add),
+            nameof(PluginUIOptions.UpdateAll),
+            nameof(PluginUIOptions.UpdateAvailableBtn),
+            nameof(PluginUIOptions.RepoLogs),       // messages about those actions, right under the buttons
+            nameof(PluginUIOptions.Releases)        // the cards
+        };
+
+        Assert.Equal(order.OrderBy(Position).ToArray(), order);
+    }
+
     [Fact]
     public void ThePageModel_BuildsItsButtonsAndLists()
     {
