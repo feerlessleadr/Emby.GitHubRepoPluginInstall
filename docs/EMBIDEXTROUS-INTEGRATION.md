@@ -368,7 +368,7 @@ The first two values are the usual Emby ones (`0` start delay, `30000` interval)
 
 - Right after the subscription: the events after the third value (all of them for `0`). If the third value is left out, the list is empty and only `LatestSeq` is the baseline.
 - Within about a second of every new event, only to subscribed connections.
-- Every 30 seconds when nothing else was sent, a heartbeat with `"Events": []`, so the app can tell a dead connection from a quiet one.
+- Every 30 seconds when nothing else was sent (the plugin runs its own timer; Emby's base listener sends none), a heartbeat with `"Events": []`, so the app can tell a dead connection from a quiet one. Every message, heartbeats and errors included, carries `ServerTimeUtc`. Checked live on Emby 4.10.1: heartbeats arrived about every 30 seconds.
 - Per connection, the plugin remembers the highest `Seq` it sent, so nothing is sent twice on one connection. A second `Start` on the same socket is ignored.
 - Only administrators may subscribe: a token that is missing, unknown or not an administrator's (and a socket whose user is not an administrator) gets one message `{ "MessageType": "GitHubRepoPluginInstallEvents", "Data": { "Error": "Administrator login required." } }` and nothing more.
 - The phone API switch is checked on every push. When it is off the plugin sends one `Data` of `{ "Error": "The phone API is switched off in the plugin's settings." }` and no events; when it is switched on again the subscription carries on with the events after the last one sent.

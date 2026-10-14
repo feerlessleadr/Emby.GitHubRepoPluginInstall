@@ -40,8 +40,8 @@ public class EventsPushListener : BasePeriodicWebSocketListener<EventsPush, Even
         _users    = users;
         _instance = this;
 
-        // Every few seconds each connection is looked at; it only gets something when it is due a heartbeat
-        _timer = new Timer(_ => NotifyChanged(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        // Every 5 seconds each connection is looked at; it only gets something when it is due a heartbeat
+        _timer = new Timer(_ => NotifyChanged(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
     }
 
     /// <summary>Gives every subscribed connection its new events. Safe to call from anywhere, any time.</summary>

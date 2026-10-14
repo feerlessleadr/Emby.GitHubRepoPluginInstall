@@ -52,11 +52,11 @@ public static class EventsSubscription
             state.Token = values[1].Trim();
     }
 
-    private static EventsPush Refusal(string text) => new EventsPush { Error = text };
+    private static EventsPush Refusal(string text, DateTimeOffset now) => new EventsPush { Error = text, ServerTimeUtc = now.UtcDateTime };
 
-    private static EventsPush From(EventsResponse r) => new EventsPush
+    private static EventsPush From(EventsResponse r, DateTimeOffset now) => new EventsPush
     {
-        ApiLevel = r.ApiLevel, LatestSeq = r.LatestSeq, Truncated = r.Truncated, Events = r.Events
+        ApiLevel = r.ApiLevel, LatestSeq = r.LatestSeq, Truncated = r.Truncated, Events = r.Events, ServerTimeUtc = now.UtcDateTime
     };
 
     /// <summary>
@@ -79,7 +79,7 @@ public static class EventsSubscription
             // Said once; the connection then stays silent
             if (state.RefusedAdmin) return null;
             state.RefusedAdmin = true;
-            return Refusal(NotAdministrator);
+            return Refusal(NotAdministrator, now);
         }
         state.RefusedAdmin = false;
 
@@ -88,7 +88,7 @@ public static class EventsSubscription
             // The owner's switch is checked on every push, so turning it off ends the alerts at once
             if (state.RefusedOff) return null;
             state.RefusedOff = true;
-            return Refusal(ApiOff);
+            return Refusal(ApiOff, now);
         }
         state.RefusedOff = false;
 
@@ -103,12 +103,12 @@ public static class EventsSubscription
             {
                 // No point of reference: just say where the log is now
                 state.LastSentSeq = latest;
-                return new EventsPush { ApiLevel = ApiVersions.Level, LatestSeq = latest, Truncated = false, Events = new List<LogEvent>() };
+                return new EventsPush { ApiLevel = ApiVersions.Level, LatestSeq = latest, Truncated = false, Events = new List<LogEvent>(), ServerTimeUtc = now.UtcDateTime };
             }
 
             var first = store.Read(state.AfterSeq.Value, EventLogStore.MaxEvents);
             state.LastSentSeq = first.LatestSeq;
-            return From(first);
+            return From(first, now);
         }
 
         if (latest > state.LastSentSeq)
@@ -116,13 +116,13 @@ public static class EventsSubscription
             var news = store.Read(state.LastSentSeq, EventLogStore.MaxEvents);
             state.LastSentSeq = news.LatestSeq;
             state.LastSentAt  = now;
-            return From(news);
+            return From(news, now);
         }
 
         if (now - state.LastSentAt >= HeartbeatDue)
         {
             state.LastSentAt = now;
-            return new EventsPush { ApiLevel = ApiVersions.Level, LatestSeq = latest, Truncated = false, Events = new List<LogEvent>() };
+            return new EventsPush { ApiLevel = ApiVersions.Level, LatestSeq = latest, Truncated = false, Events = new List<LogEvent>(), ServerTimeUtc = now.UtcDateTime };
         }
 
         return null;

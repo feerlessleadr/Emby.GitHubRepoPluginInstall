@@ -520,7 +520,7 @@ public class EventsSubscriptionTests
         Assert.DoesNotContain("Error", ok);
 
         var refusal = json.SerializeToString(EventsSubscription.Next(Start("0"), store, false, true, T0));
-        Assert.Equal("{\"Error\":\"Administrator login required.\"}", refusal);
+        Assert.StartsWith("{\"Error\":\"Administrator login required.\",\"ServerTimeUtc\":\"2026-10-14T12:00:00", refusal);
     }
 }
 

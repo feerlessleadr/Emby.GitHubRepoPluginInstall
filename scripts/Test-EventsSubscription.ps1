@@ -59,9 +59,9 @@ function Send-Text($text) {
     $ws.SendAsync($seg, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).GetAwaiter().GetResult()
 }
 
-# The app always sends the last Seq (0 if none) and then the administrator token in the body, never in the address
-$after = if ($AfterSeq -ge 0) { $AfterSeq } else { 0 }
-Send-Text ('{"MessageType":"GitHubRepoPluginInstallEventsStart","Data":"0,30000,' + $after + ',' + $Token + '"}')
+# Third value: the last Seq seen (-AfterSeq), or empty for a baseline only. Then the administrator token, never in the address
+$afterText = if ($AfterSeq -ge 0) { "$AfterSeq" } else { '' }   # empty = baseline only
+Send-Text ('{"MessageType":"GitHubRepoPluginInstallEventsStart","Data":"0,30000,' + $afterText + ',' + $Token + '"}')
 Write-Host "== Sent GitHubRepoPluginInstallEventsStart (token in the body, not printed)"
 
 if ($TriggerCheck) {
@@ -73,21 +73,25 @@ if ($TriggerCheck) {
 $buffer = New-Object byte[] 65536
 $deadline = (Get-Date).AddSeconds($Seconds)
 $received = 0
+$sb = New-Object System.Text.StringBuilder
+$pending = $null
+# A receive is never cancelled (cancelling would abort the socket); it is waited on with a timeout instead
 while ((Get-Date) -lt $deadline) {
+    if ($null -eq $pending) {
+        $seg = New-Object 'System.ArraySegment[byte]' -ArgumentList (, $buffer)
+        $pending = $ws.ReceiveAsync($seg, [Threading.CancellationToken]::None)
+    }
     $remaining = [int]($deadline - (Get-Date)).TotalMilliseconds
     if ($remaining -le 0) { break }
-    $recvCts = New-Object System.Threading.CancellationTokenSource($remaining)
-    $sb = New-Object System.Text.StringBuilder
-    try {
-        do {
-            $seg = New-Object 'System.ArraySegment[byte]' -ArgumentList (, $buffer)
-            $r = $ws.ReceiveAsync($seg, $recvCts.Token).GetAwaiter().GetResult()
-            [void]$sb.Append([Text.Encoding]::UTF8.GetString($buffer, 0, $r.Count))
-        } while (-not $r.EndOfMessage)
-    } catch [System.OperationCanceledException] { break }
-    catch { if ($_.Exception.InnerException -is [System.OperationCanceledException]) { break } else { throw } }
+    if (-not $pending.Wait([Math]::Min($remaining, 1000))) { continue }
+    $r = $pending.Result
+    $pending = $null
+    if ($r.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) { Write-Host '== The server closed the socket'; break }
+    [void]$sb.Append([Text.Encoding]::UTF8.GetString($buffer, 0, $r.Count))
+    if (-not $r.EndOfMessage) { continue }
 
     $text = $sb.ToString()
+    [void]$sb.Clear()
     $stamp = (Get-Date).ToString('HH:mm:ss')
     if ($text -match 'GitHubRepoPluginInstallEvents') {
         $received++
@@ -97,6 +101,6 @@ while ((Get-Date) -lt $deadline) {
     }
 }
 
-Send-Text '{"MessageType":"GitHubRepoPluginInstallEventsStop"}'
+try { Send-Text '{"MessageType":"GitHubRepoPluginInstallEventsStop"}' } catch { }
 try { $ws.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, 'done', [Threading.CancellationToken]::None).GetAwaiter().GetResult() } catch { }
 Write-Host "== Done: $received GitHubRepoPluginInstallEvents message(s) in $Seconds seconds"

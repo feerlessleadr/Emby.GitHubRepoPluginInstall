@@ -79,6 +79,9 @@ public class EventsPush
     /// <summary>Empty for a heartbeat. Left out of a refusal.</summary>
     public List<LogEvent> Events    { get; set; }
     public string         Error     { get; set; }
+
+    /// <summary>When this message was made, so the app can see a heartbeat is fresh.</summary>
+    public DateTime?      ServerTimeUtc { get; set; }
 }
 
 // ---- The notification catalog -------------------------------------------------------------------------------------
