@@ -14,7 +14,13 @@ public class InfoResponse
     public string PluginVersion          { get; set; }
     public int    ApiVersion             { get; set; }
     public int    MinSupportedApiVersion { get; set; }
-    public bool   ApiEnabled             { get; set; }
+
+    /// <summary>Level of the alert features; also on every pushed event.</summary>
+    public int    ApiLevel               { get; set; }
+
+    /// <summary>What this plugin build offers beyond the basics: "events" (Events route and subscription) and "catalog".</summary>
+    public string[] Features             { get; set; }
+    public bool   ApiEnabled            { get; set; }
     public bool   AllowManage            { get; set; }
     public bool   RunInProgress          { get; set; }
     public bool   RestartPending         { get; set; }

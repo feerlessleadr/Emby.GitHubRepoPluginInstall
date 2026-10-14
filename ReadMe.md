@@ -142,6 +142,8 @@ It is **off by default**. Two switches under **Settings** on the plugin page con
 - **...and to add and remove plugins** is separate and also off by default, because adding a plugin installs someone else's code on your server.
 
 The app can't change these switches. `GET /emby/Plugins/GitHubRepoPluginInstall/info` reports the plugin version and `ApiVersion`. The full reference, with every endpoint, example JSON, the push events and Kotlin types, is in [docs/EMBIDEXTROUS-INTEGRATION.md](docs/EMBIDEXTROUS-INTEGRATION.md).
+
+**Alerts.** While the API is on, the plugin keeps a log of its last 500 events (runs finished, restart needed, plugin list changes) with a number on each, so an app that was asleep can catch up with `GET /emby/Plugins/GitHubRepoPluginInstall/Events?After=<number>`. An app can also subscribe on Emby's websocket (`GitHubRepoPluginInstallEventsStart`) and the plugin pushes new events to it at once, with a heartbeat every 30 seconds. `GET .../Notifications/Catalog` lists the alerts the plugin offers (a finished run, and a restart being needed). Only administrators can use any of this, and nothing is logged or pushed while the API switch is off. Events never contain file paths.
 ## Troubleshooting
 
 Failed plugins show the reason on their card. The common ones:

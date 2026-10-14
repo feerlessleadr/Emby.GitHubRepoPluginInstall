@@ -25,6 +25,12 @@ public static class ApiVersions
 {
     public const int Current      = 1;
     public const int MinSupported = 1;
+
+    /// <summary>
+    /// Level of the alert features (event log, catalog, subscription), the number every pushed event carries. Unlike
+    /// ApiVersion it can go up for additions the app should know about.
+    /// </summary>
+    public const int Level        = 1;
 }
 
 // ---- Requests -----------------------------------------------------------------------------------------------------
@@ -39,6 +45,21 @@ public static class Routes
 [Route(Routes.Base + "/info", "GET", Summary = "Plugin version, API version and the state of the two switches. Works even when the API is off.")]
 [Authenticated(Roles = "Admin")]
 public class GetInfo : IReturn<InfoResponse> { }
+
+[Route(Routes.Base + "/Events", "GET", Summary = "Catch up on alerts: the events after a sequence number, oldest first, from a log of the last 500")]
+[Authenticated(Roles = "Admin")]
+public class GetEvents : IReturn<EventsResponse>
+{
+    /// <summary>The highest Seq the caller has already seen. Default 0.</summary>
+    public long? After { get; set; }
+
+    /// <summary>1 to 500; default 100.</summary>
+    public int?  Limit { get; set; }
+}
+
+[Route(Routes.Base + "/Notifications/Catalog", "GET", Summary = "The alerts this plugin can send, for the app's notification settings")]
+[Authenticated(Roles = "Admin")]
+public class GetNotificationCatalog : IReturn<CatalogResponse> { }
 
 [Route(Routes.Base + "/status", "GET", Summary = "Everything a dashboard needs in one call, including live run progress")]
 [Authenticated(Roles = "Admin")]
@@ -274,6 +295,8 @@ public class PluginApiService : IService, IRequiresRequest
 
     public object Get(GetInfo request) => Reply(DoGetGetInfo(request));
     public object Get(GetStatus request) => Reply(DoGetGetStatus(request));
+    public object Get(GetEvents request) => Reply(DoGetGetEvents(request));
+    public object Get(GetNotificationCatalog request) => Reply(DoGetGetNotificationCatalog(request));
     public object Get(GetPlugins request) => Reply(DoGetGetPlugins(request));
     public async Task<object> Get(GetPlugin request) => Reply(await DoGetGetPlugin(request));
     public object Get(GetHistory request) => Reply(DoGetGetHistory(request));
@@ -328,11 +351,30 @@ public class PluginApiService : IService, IRequiresRequest
                    PluginVersion          = typeof(PluginApiService).Assembly.GetName().Version?.ToString(),
                    ApiVersion             = ApiVersions.Current,
                    MinSupportedApiVersion = ApiVersions.MinSupported,
+                   ApiLevel               = ApiVersions.Level,
+                   Features               = new[] { "events", "catalog" },
                    ApiEnabled             = options.ApiEnabled,
                    AllowManage            = options.ApiEnabled && options.ApiAllowManage,
                    RunInProgress          = RepoUpdateService.GetProgress().IsRunning,
                    RestartPending         = state.PendingRestart.Count > 0
                };
+    }
+
+    private object DoGetGetEvents(GetEvents request)
+    {
+        var blocked = Gate(NewStore().GetOptions());
+        if (blocked != null) return blocked;
+
+        return new EventLogStore(_host, _logger, GitHubRepPluginInstall.PluginName)
+            .Read(Math.Max(0, request.After ?? 0), request.Limit ?? EventLogStore.DefaultLimit);
+    }
+
+    private object DoGetGetNotificationCatalog(GetNotificationCatalog request)
+    {
+        var blocked = Gate(NewStore().GetOptions());
+        if (blocked != null) return blocked;
+
+        return NotificationCatalog.Build();
     }
 
     private object DoGetGetStatus(GetStatus request)

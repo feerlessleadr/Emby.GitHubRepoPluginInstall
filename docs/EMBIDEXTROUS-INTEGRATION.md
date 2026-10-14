@@ -12,6 +12,7 @@ The plugin keeps a list of GitHub repositories, checks their releases, installs 
 - JSON, PascalCase field names, enums as strings.
 - The API is **off until the server owner turns it on** in the plugin's Settings page (*Allow the phone app to control this plugin*). Adding and removing plugins and registries is behind a **second** switch (*...and to add and remove plugins*). The app can read both switches from `GET /info` and can't change them.
 - Long operations (updates, checks) return **202 immediately** and are followed by **polling `GET /status`** or by listening for **pushed WebSocket events** (section 6).
+- Alerts reach the app through the **events subscription** (section 6), not through Emby session messages: Emby only delivers those to sockets that carry the token in the address, and the app never does that.
 - Nothing restarts the server by itself. After an install, `GET /status` has `RestartPending: true` and the app decides whether to call `POST /restart`.
 
 ## 2. Conventions (matching the app's other plugins)
@@ -32,7 +33,7 @@ Note: errors that Emby itself produces before the plugin runs (a missing or inva
 
 ### How `ApiVersion` changes
 
-`GET /info` returns `ApiVersion` (an integer, currently **1**) and `MinSupportedApiVersion` (currently **1**).
+`GET /info` returns `ApiVersion` (an integer, currently **1**) and `MinSupportedApiVersion` (currently **1**). It also returns `ApiLevel` (currently 1), the level of the alert features, which can go up for additions the app should know about without breaking anything.
 
 - `ApiVersion` goes up **only for a breaking change**: a removed or renamed field, a changed meaning, or a removed endpoint.
 - Adding an endpoint, an optional field or an enum value does **not** change it. So the app must ignore unknown fields (`ignoreUnknownKeys = true`) and handle unknown enum strings.
@@ -47,6 +48,8 @@ All paths below are relative to `/emby/Plugins/GitHubRepoPluginInstall`. "API on
 |---|---|---|
 | `GET /info` | admin only (works with the API off) | Versions and switch state. Call this first. |
 | `GET /status` | API on | Dashboard in one call, including live run progress. |
+| `GET /Events?After=&Limit=` | API on | Alerts the app can catch up on, oldest first. See section 6. |
+| `GET /Notifications/Catalog` | API on | The alerts this plugin can send. See section 6. |
 | `GET /plugins` | API on | All plugins. |
 | `GET /plugins/{Id}` | API on | One plugin with its backups. |
 | `GET /history?Limit=n` | API on | Last runs, newest first. `Limit` 1 to 20, default 10. |
@@ -78,6 +81,8 @@ The two API switches themselves can **only** be changed on the plugin's page in 
   "PluginVersion": "2026.10.11.1",
   "ApiVersion": 1,
   "MinSupportedApiVersion": 1,
+  "ApiLevel": 1,
+  "Features": ["events", "catalog"],
   "ApiEnabled": true,
   "AllowManage": false,
   "RunInProgress": false,
@@ -303,13 +308,90 @@ The plugin sends messages through Emby's own WebSocket (`/embywebsocket`), to ev
 
 Things to know:
 
-- **The WebSocket has to be authenticated as a logged-in user** (the administrator's session token). A connection made with an API key doesn't get these messages. This was verified.
+- **These session messages do not reach Embidextrous.** Emby links a websocket to an administrator session only when the token is in the websocket's address (`?api_key=`). Embidextrous sends its token in the `X-Emby-Token` header and never in a URL, so it receives none of the messages in this table. Use the events subscription below instead. The session messages still reach Emby's own web admin pages.
 - Messages are only sent while the owner has the API switched on.
 - They are **fire and forget**: nothing is queued for an app that is offline or asleep. On resume, call `GET /status` to catch up.
 - Treat each message as a hint to refresh from `GET /status` and `GET /plugins` rather than trusting it as the only source of truth.
 - Push only reaches the app while it holds an Emby WebSocket. For notifications when the app is closed, there is no server-side push service in the plugin (no FCM). Use WorkManager to run `GET /status` every 15 to 30 minutes and raise a local notification when `UpdatesReady` grows, `RestartPending` turns true, or `LastRun.Failed > 0` for a run you haven't shown. **Not verified** in the app.
 
 Notification ideas that fit the events: "3 plugin updates ready" (`UpdatesReady` or a `RunCompleted` with `CheckOnly`), "Restart needed to finish updating X" (`RestartPending`), "Plugin update failed: X" (`RunCompleted.FailedPlugins`), "Update run finished".
+
+### Alerts for the app: the events log, the catalog and the subscription
+
+This is how Embidextrous gets alerts (plugin updates finished, a restart is needed). It follows the push contract the app uses for all its plugins, and it works with the token in the `X-Emby-Token` header only.
+
+**What is logged.** Every time the plugin raises `RunStarted`, `RunCompleted`, `RestartPending` or `PluginsChanged` (the same events as in the table above) it also writes the event to a log of the last 500 events, kept in two files in Emby's plugin configuration folder: `GitHub Repo Plugin Install.events.json` and a separate `GitHub Repo Plugin Install.events.seq` that holds the last number handed out, so `Seq` never goes back, even if the log is deleted or damaged. `RunProgress` is not logged: it is a ticker, and `GET /status` has the same information. Nothing is logged or sent while the phone API switch is off. No file paths appear in any payload; the plugin names the plugins and nothing else.
+
+**Every logged event** looks like this. `Data` has five common fields and then the fields of that event; fields that don't apply are left out.
+
+```json
+{ "Seq": 12, "Name": "GitHubRepoPluginInstall.RunCompleted", "AtUtc": "2026-10-14T18:30:12.1234567Z",
+  "Data": { "ApiLevel": 1, "Seq": 12, "EventId": "5b1d2b2a-9a4e-4a3e-8d5e-0d6c8b6e0001", "ServerTimeUtc": "2026-10-14T18:30:12.1234567Z",
+            "Event": "RunCompleted", "Trigger": "Scheduled", "Total": 5, "Done": 5, "CheckOnly": false,
+            "Updated": 1, "UpToDate": 3, "Failed": 1, "Waiting": 0,
+            "UpdatedPlugins": ["Example.Plugin"], "FailedPlugins": ["Other.Plugin"] } }
+```
+
+| `Name` | When | Event fields in `Data` |
+|---|---|---|
+| `GitHubRepoPluginInstall.RunStarted` | A run begins. | `Trigger`, `Total`, `CheckOnly` |
+| `GitHubRepoPluginInstall.RunCompleted` | A run ends. | `Trigger`, `Total`, `Done`, `CheckOnly`, `Updated`, `UpToDate`, `Failed`, `Waiting`, `UpdatedPlugins[]`, `FailedPlugins[]` |
+| `GitHubRepoPluginInstall.RestartPending` | A run installed something, or a restore or removal needs a restart. | `Trigger` (runs only), `Updated`, `UpdatedPlugins[]` |
+| `GitHubRepoPluginInstall.PluginsChanged` | Add, remove, restore, settings, registry changes, restart dismissed. | `Reason`, `PluginId`, `PluginName`, `RestartNeeded` |
+
+**Catch up: `GET /Events?After=<seq>&Limit=100`** (API on, administrator). Returns `{ "ApiLevel": 1, "LatestSeq": 12, "Truncated": false, "Events": [ ...as above... ] }`, oldest first. `After` defaults to 0 and `Limit` to 100 (1 to 500). `Truncated: true` means the log no longer reaches back to `After + 1` (or the plugin's data was reset and `After` is ahead of `LatestSeq`); read `GET /status` instead. The app dedupes by `Seq`.
+
+**The catalog: `GET /Notifications/Catalog`** (API on, administrator). The service is `Id` `GitHubRepoPluginInstall`, `Title` "GitHub Repo Plugin Install", `ChannelId` `plugin-updates`, `ChannelTitle` "Plugin updates". It lists two alerts, so the app's settings screen can offer rules for them:
+
+| Event `Id` | `Title` | Rule parameters | Default |
+|---|---|---|---|
+| `GitHubRepoPluginInstall.RunCompleted` | Plugin update run finished | `OnlyWhenSomethingHappened` (bool, default true): the app sends the alert only when `Updated > 0` or `Failed > 0` | on |
+| `GitHubRepoPluginInstall.RestartPending` | Emby needs a restart | none | on |
+
+`RunStarted` and `PluginsChanged` are in the log for catching up, but they are not alerts, so they are not in the catalog. Both catalog events have `OpensTab` `GitHubRepoPluginInstall`.
+
+**`GET /info`** reports `ApiLevel` (1) and `Features`, which includes `"events"` and `"catalog"`. `ApiVersion` did not change.
+
+**The subscription.** Connect to `/embywebsocket` the way the app always does (token in the `X-Emby-Token` header, `deviceId` in the address, no `api_key`), then send:
+
+```json
+{ "MessageType": "GitHubRepoPluginInstallEventsStart", "Data": "0,30000,12" }
+```
+
+The first two values are the usual Emby ones (`0` start delay, `30000` interval). The third is optional: the highest `Seq` the app has already seen. To stop: `{ "MessageType": "GitHubRepoPluginInstallEventsStop" }`. The plugin answers with messages named `GitHubRepoPluginInstallEvents`:
+
+```json
+{ "MessageType": "GitHubRepoPluginInstallEvents",
+  "Data": { "ApiLevel": 1, "LatestSeq": 13, "Truncated": false,
+            "Events": [ { "Seq": 13, "Name": "GitHubRepoPluginInstall.RestartPending", "AtUtc": "...", "Data": { "...": "..." } } ] } }
+```
+
+- Right after the subscription: the events after the third value (empty if you gave none; then only `LatestSeq` is the baseline).
+- Within about a second of every new event, only to subscribed connections.
+- Every 30 seconds when nothing else was sent, a heartbeat with `"Events": []`, so the app can tell a dead connection from a quiet one.
+- Per connection, the plugin remembers the highest `Seq` it sent, so nothing is sent twice on one connection. A second `Start` on the same socket is ignored.
+- Only administrators may subscribe, checked with the administrator's token. Anyone else gets one message `{ "MessageType": "GitHubRepoPluginInstallEvents", "Data": { "Error": "Administrator login required." } }` and nothing more.
+- The phone API switch is checked on every push. When it is off the plugin sends one `Data` of `{ "Error": "The phone API is switched off in the plugin's settings." }` and no events; when it is switched on again the subscription carries on with the events after the last one sent.
+- After a reconnect, send `Start` again with the last `Seq` seen, or call `GET /Events`.
+
+Kotlin types for the alert messages (everything optional gets a default, because fields that don't apply are left out):
+
+```kotlin
+@Serializable data class AlertEvent(
+    @SerialName("Seq") val seq: Long = 0,
+    @SerialName("Name") val name: String = "",
+    @SerialName("AtUtc") val atUtc: String = "",
+    @SerialName("Data") val data: JsonObject = JsonObject(emptyMap()),   // ApiLevel, Seq, EventId, ServerTimeUtc, Event, then the event's own fields
+)
+
+@Serializable data class AlertsPush(          // Data of GitHubRepoPluginInstallEvents, and the body of GET /Events
+    @SerialName("ApiLevel") val apiLevel: Int = 0,
+    @SerialName("LatestSeq") val latestSeq: Long = 0,
+    @SerialName("Truncated") val truncated: Boolean = false,
+    @SerialName("Events") val events: List<AlertEvent> = emptyList(),
+    @SerialName("Error") val error: String? = null,   // set (and nothing else) when the plugin refuses the subscription
+)
+```
 
 ## 7. How updates are checked and installed
 
@@ -329,6 +411,8 @@ GitHub allows 60 requests per hour without a token and 5,000 with one, so a few 
     @SerialName("PluginVersion") val pluginVersion: String = "",
     @SerialName("ApiVersion") val apiVersion: Int = 0,
     @SerialName("MinSupportedApiVersion") val minSupportedApiVersion: Int = 0,
+    @SerialName("ApiLevel") val apiLevel: Int = 0,
+    @SerialName("Features") val features: List<String> = emptyList(),
     @SerialName("ApiEnabled") val apiEnabled: Boolean = false,
     @SerialName("AllowManage") val allowManage: Boolean = false,
     @SerialName("RunInProgress") val runInProgress: Boolean = false,
