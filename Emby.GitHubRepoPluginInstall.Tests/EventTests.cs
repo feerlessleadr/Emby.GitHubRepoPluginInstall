@@ -523,3 +523,94 @@ public class EventsSubscriptionTests
         Assert.Equal("{\"Error\":\"Administrator login required.\"}", refusal);
     }
 }
+
+public class EventsSubscriptionTokenTests
+{
+    private static readonly DateTimeOffset T0 = new DateTimeOffset(2026, 10, 14, 12, 0, 0, TimeSpan.Zero);
+
+    private static EventLogStore Make(TempDir dir) =>
+        new EventLogStore(dir.Path, new TestJson(), new TestLogger(), "GitHub Repo Plugin Install");
+
+    private static EventsPushState Start(string data)
+    {
+        var state = new EventsPushState();
+        EventsSubscription.ParseStartValues(data.Split(','), state);
+        return state;
+    }
+
+    [Fact]
+    public void TheStartMessageCarriesTheLastSeqThenTheToken()
+    {
+        var state = Start("7,tok123");
+        Assert.Equal(7, state.AfterSeq);
+        Assert.Equal("tok123", state.Token);
+
+        Assert.Null(Start("0").Token);
+        Assert.Null(Start("0,  ").Token);
+    }
+
+    [Fact]
+    public void AnAdministratorsTokenIsEnoughWhenConnectionUserIsEmpty()
+    {
+        using var dir = new TempDir();
+        var state = Start("0,admin-token");
+
+        var push = EventsSubscription.Next(state, Make(dir), isAdministrator: false, apiEnabled: true, T0, t => t == "admin-token");
+
+        Assert.Null(push.Error);
+        Assert.NotNull(push.Events);
+    }
+
+    [Fact]
+    public void AWrongMissingOrNonAdministratorTokenGetsTheError()
+    {
+        using var dir = new TempDir();
+
+        var wrong = EventsSubscription.Next(Start("0,nope"), Make(dir), false, true, T0, t => false);
+        var none  = EventsSubscription.Next(Start("0"), Make(dir), false, true, T0, t => true);
+        var boom  = EventsSubscription.Next(Start("0,x"), Make(dir), false, true, T0, t => throw new InvalidOperationException());
+
+        Assert.Equal(EventsSubscription.NotAdministrator, wrong.Error);
+        Assert.Equal(EventsSubscription.NotAdministrator, none.Error);
+        Assert.Equal(EventsSubscription.NotAdministrator, boom.Error);
+    }
+
+    [Fact]
+    public void TheTokenIsCheckedAgainOnEveryPush()
+    {
+        using var dir = new TempDir();
+        var store = Make(dir);
+        var state = Start("0,tok");
+        var valid = true;
+
+        Assert.Null(EventsSubscription.Next(state, store, false, true, T0, t => valid).Error);
+        valid = false;
+        Assert.Equal(EventsSubscription.NotAdministrator, EventsSubscription.Next(state, store, false, true, T0.AddSeconds(10), t => valid).Error);
+        Assert.Null(EventsSubscription.Next(state, store, false, true, T0.AddSeconds(20), t => valid));
+    }
+
+    [Fact]
+    public void ConnectionUserAdministratorStillWorksWithoutAToken()
+    {
+        using var dir = new TempDir();
+        Assert.Null(EventsSubscription.Next(Start("0"), Make(dir), true, true, T0, t => false).Error);
+    }
+
+    [Fact]
+    public void TheApiSwitchStillAppliesToATokenSubscriber_AndTheTokenNeverAppearsInAPush()
+    {
+        using var dir = new TempDir();
+        var store = Make(dir);
+        EventRecorder.Record(store, true, PushEvents.RunCompleted, new RunEventData { Updated = 1 });
+        var json = new TestJson();
+
+        var off = EventsSubscription.Next(Start("0,secret-token"), store, false, false, T0, t => true);
+        var on  = EventsSubscription.Next(Start("0,secret-token"), store, false, true, T0, t => true);
+
+        Assert.Equal(EventsSubscription.ApiOff, off.Error);
+        Assert.Null(off.Events);
+        Assert.DoesNotContain("secret-token", json.SerializeToString(off));
+        Assert.DoesNotContain("secret-token", json.SerializeToString(on));
+        Assert.DoesNotContain("secret-token", File.ReadAllText(Directory.GetFiles(dir.Path, "*.json").Single()));
+    }
+}

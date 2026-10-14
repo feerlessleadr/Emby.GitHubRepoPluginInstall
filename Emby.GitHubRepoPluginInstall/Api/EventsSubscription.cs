@@ -11,6 +11,9 @@ public class EventsPushState : WebSocketListenerState
     /// <summary>The highest Seq the app said it has already seen, or null when it said nothing.</summary>
     public long?           AfterSeq     { get; set; }
 
+    /// <summary>The administrator's access token from the start message. Held in memory only: never logged, echoed or saved.</summary>
+    public string          Token        { get; set; }
+
     public bool            Started      { get; set; }
 
     /// <summary>The highest Seq sent on this connection. Nothing at or below it is ever sent again.</summary>
@@ -37,12 +40,16 @@ public static class EventsSubscription
     /// <summary>The listener checks every few seconds, so a heartbeat is due a little before the full 30 seconds.</summary>
     public static readonly TimeSpan HeartbeatDue = TimeSpan.FromSeconds(25);
 
+    /// <summary>values[0] is the last Seq seen, values[1] the administrator's access token (both optional).</summary>
     public static void ParseStartValues(string[] values, EventsPushState state)
     {
         if (values != null && values.Length > 0 &&
             long.TryParse(values[0], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var after) &&
             after >= 0)
             state.AfterSeq = after;
+
+        if (values != null && values.Length > 1 && !string.IsNullOrWhiteSpace(values[1]))
+            state.Token = values[1].Trim();
     }
 
     private static EventsPush Refusal(string text) => new EventsPush { Error = text };
@@ -56,8 +63,17 @@ public static class EventsSubscription
     /// What to send this connection now, or null for nothing. Called for the first push, whenever a new event is logged,
     /// and on a timer. Updates the connection's state.
     /// </summary>
-    public static EventsPush Next(EventsPushState state, EventLogStore store, bool isAdministrator, bool apiEnabled, DateTimeOffset now)
+    public static EventsPush Next(EventsPushState state, EventLogStore store, bool isAdministrator, bool apiEnabled, DateTimeOffset now,
+                                  Func<string, bool> tokenIsAdministrator = null)
     {
+        // Emby leaves connection.User empty for a socket that authenticated with a header, so the token in the start message
+        // is checked too, on every push. A token that no longer belongs to an administrator ends the access.
+        if (!isAdministrator && state.Token != null && tokenIsAdministrator != null)
+        {
+            try { isAdministrator = tokenIsAdministrator(state.Token); }
+            catch { isAdministrator = false; }
+        }
+
         if (!isAdministrator)
         {
             // Said once; the connection then stays silent

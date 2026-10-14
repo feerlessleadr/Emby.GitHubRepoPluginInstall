@@ -355,10 +355,10 @@ This is how Embidextrous gets alerts (plugin updates finished, a restart is need
 **The subscription.** Connect to `/embywebsocket` the way the app always does (token in the `X-Emby-Token` header, `deviceId` in the address, no `api_key`), then send:
 
 ```json
-{ "MessageType": "GitHubRepoPluginInstallEventsStart", "Data": "0,30000,12" }
+{ "MessageType": "GitHubRepoPluginInstallEventsStart", "Data": "0,30000,12,<administrator access token>" }
 ```
 
-The first two values are the usual Emby ones (`0` start delay, `30000` interval). The third is optional: the highest `Seq` the app has already seen. To stop: `{ "MessageType": "GitHubRepoPluginInstallEventsStop" }`. The plugin answers with messages named `GitHubRepoPluginInstallEvents`:
+The first two values are the usual Emby ones (`0` start delay, `30000` interval). The third is the highest `Seq` the app has already seen (`0` if none; with `0` the first push holds every logged event). The fourth is the signed-in administrator's access token. Emby fills in the websocket's user only when the token is in the address, so a header-authenticated socket looks like nobody; the plugin therefore checks the token from the message itself through Emby's session manager (session, then user, then administrator) and re-checks it on every push. The plugin never logs, echoes or saves the token. Use wss in release builds, since the token travels in the message body. To stop: `{ "MessageType": "GitHubRepoPluginInstallEventsStop" }`. The plugin answers with messages named `GitHubRepoPluginInstallEvents`:
 
 ```json
 { "MessageType": "GitHubRepoPluginInstallEvents",
@@ -366,11 +366,11 @@ The first two values are the usual Emby ones (`0` start delay, `30000` interval)
             "Events": [ { "Seq": 13, "Name": "GitHubRepoPluginInstall.RestartPending", "AtUtc": "...", "Data": { "...": "..." } } ] } }
 ```
 
-- Right after the subscription: the events after the third value (empty if you gave none; then only `LatestSeq` is the baseline).
+- Right after the subscription: the events after the third value (all of them for `0`). If the third value is left out, the list is empty and only `LatestSeq` is the baseline.
 - Within about a second of every new event, only to subscribed connections.
 - Every 30 seconds when nothing else was sent, a heartbeat with `"Events": []`, so the app can tell a dead connection from a quiet one.
 - Per connection, the plugin remembers the highest `Seq` it sent, so nothing is sent twice on one connection. A second `Start` on the same socket is ignored.
-- Only administrators may subscribe, checked with the administrator's token. Anyone else gets one message `{ "MessageType": "GitHubRepoPluginInstallEvents", "Data": { "Error": "Administrator login required." } }` and nothing more.
+- Only administrators may subscribe: a token that is missing, unknown or not an administrator's (and a socket whose user is not an administrator) gets one message `{ "MessageType": "GitHubRepoPluginInstallEvents", "Data": { "Error": "Administrator login required." } }` and nothing more.
 - The phone API switch is checked on every push. When it is off the plugin sends one `Data` of `{ "Error": "The phone API is switched off in the plugin's settings." }` and no events; when it is switched on again the subscription carries on with the events after the last one sent.
 - After a reconnect, send `Start` again with the last `Seq` seen, or call `GET /Events`.
 

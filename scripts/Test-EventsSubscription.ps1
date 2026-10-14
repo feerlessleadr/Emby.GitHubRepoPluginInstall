@@ -3,14 +3,14 @@
   Live check of the alerts feature against a running Emby server, connecting the way the Embidextrous app does.
 
 .DESCRIPTION
-  The token goes ONLY in the X-Emby-Token header, the deviceId is in the address, and there is NO api_key anywhere.
+  The token goes in the X-Emby-Token header (to connect) and in the start message body (to subscribe), the deviceId is in the address, and there is NO api_key anywhere.
   (A test that connects with api_key proves nothing about the app: Emby treats that socket differently.)
 
   Steps: Info (ApiLevel and Features), Notifications/Catalog, Events, then a websocket subscription that prints every
   message for a while. With -TriggerCheck it starts a check-only run (POST /run, Mode Check) so a RunCompleted event
   appears while the socket listens. The plugin's phone API switch must be on in its settings.
 
-  Expected: the first message right after Start has the events after -AfterSeq (or an empty list with LatestSeq when
+  Expected: the first message right after Start has the events after -AfterSeq (always sent; 0 gives the whole log; if you could omit it you would get an empty list with LatestSeq when
   -AfterSeq is left out), a message within about a second of RunCompleted, and a heartbeat with "Events":[] every
   30 seconds. With a non-administrator token the only message is {"Error":"Administrator login required."}.
 
@@ -59,9 +59,10 @@ function Send-Text($text) {
     $ws.SendAsync($seg, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).GetAwaiter().GetResult()
 }
 
-$third = if ($AfterSeq -ge 0) { ",$AfterSeq" } else { '' }
-Send-Text ('{"MessageType":"GitHubRepoPluginInstallEventsStart","Data":"0,30000' + $third + '"}')
-Write-Host "== Sent GitHubRepoPluginInstallEventsStart"
+# The app always sends the last Seq (0 if none) and then the administrator token in the body, never in the address
+$after = if ($AfterSeq -ge 0) { $AfterSeq } else { 0 }
+Send-Text ('{"MessageType":"GitHubRepoPluginInstallEventsStart","Data":"0,30000,' + $after + ',' + $Token + '"}')
+Write-Host "== Sent GitHubRepoPluginInstallEventsStart (token in the body, not printed)"
 
 if ($TriggerCheck) {
     Start-Sleep -Seconds 3

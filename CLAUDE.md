@@ -15,6 +15,7 @@ An Emby plugin (net8.0) that installs and updates other Emby plugins from GitHub
 - `ApiVersion` changes only for a breaking change. `ApiLevel` (in `ApiVersions.Level`) is the level of the alert features and is carried by every pushed event.
 - The update code raises events through `RunEvents.Raise`. `PushBridge` receives them: it logs the four that are alerts (`EventRecorder`, into `EventLogStore`), tells the websocket listener (`EventsPushListener`) and also sends the old session message. Emby delivers session messages only to sockets with `?api_key=` in the address, which the app never uses, so the app depends on the log, the `Events` route and the subscription.
 - The subscription rules (who may subscribe, first push, heartbeat, per-connection last-sent `Seq`) are in `EventsSubscription`, which has no Emby types in its logic so it is unit tested. The listener is a thin shell around it.
+- The app's header-authenticated socket has an empty `connection.User`, so the start message body carries the administrator's token (`"0,30000,<afterSeq>,<token>"`). `EventsPushListener.TokenIsAdministrator` checks it through `ISessionManager` and `IUserManager` on every push. Never log, echo or save the token.
 - Event payloads must never contain file paths. `EventRecorder.Scrub` removes anything path-like.
 - Sequence numbers are in a separate `.events.seq` file so they never go back.
 
