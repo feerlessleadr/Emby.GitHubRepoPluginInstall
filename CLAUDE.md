@@ -23,3 +23,5 @@ An Emby plugin (net8.0) that installs and updates other Emby plugins from GitHub
 - Plain American English in docs and messages. No file paths, LAN addresses, share names or user names in tracked files.
 - Commits are authored as `feerlessleadr <github@thecgkg.com>`; the message ends with the Co-Authored-By line the session gives.
 - `scripts/Test-EventsSubscription.ps1` connects like the app (token only in the `X-Emby-Token` header) for live checks against a real server.
+
+- **Released 2026-10-14:** tag `2026.10.14` (phone alerts for the Embidextrous app); `Emby.GitHubRepoPluginInstall.dll` 446,464 bytes, SHA-256 `b68436f7895bacbda34b50539d178b73abd588e24a51c869db94a7c6525a9bb4`. The build was live-tested on the test server before the tag; the published file itself was not re-tested.
